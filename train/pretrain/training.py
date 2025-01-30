@@ -197,6 +197,7 @@ class Trainer(nn.Module):
             load_dir = os.path.join(self.args.resPath, str(step))
             self.model.module.dnabert2.load_state_dict(torch.load(load_dir+'/pytorch_model.bin'))
             self.model.module.contrast_head.load_state_dict(torch.load(load_dir+'/con_weights.ckpt'))
+            self.model.module.attention.load_state_dict(torch.load(load_dir+'/attention_weights.ckpt'))
             val_loss = 0.
             for j, batch in enumerate(self.val_loader):
                 with torch.no_grad():
