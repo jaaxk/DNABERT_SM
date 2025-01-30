@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from textaugment import EDA
 from tqdm import tqdm
-from utils.contrastive_utils import HardConLoss, iMIXConLoss
+from utils.contrastive_utils import HardConLoss, iMIXConLoss, AttentionLoss
 
 class Trainer(nn.Module):
     def __init__(self, model, tokenizer, optimizer, train_loader, val_loader, args):
@@ -20,10 +20,12 @@ class Trainer(nn.Module):
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.gstep = 0
+        self.attn_loss_weight = 1 #Can be tuned!!!!
         if args.con_method == 'mutate':
             self.data_mutate = EDA()
         self.hard_loss = HardConLoss(temperature=self.args.temperature).cuda()
         self.imix_loss = iMIXConLoss(temperature=self.args.temperature).cuda()
+        self.attention_loss = AttentionLoss().cuda() #Add dist and correl weight as params
         self.curriculum = args.curriculum
 
     def get_batch_token(self, dna_seq):
@@ -92,6 +94,7 @@ class Trainer(nn.Module):
             self.model.module.dnabert2.save_pretrained(save_dir)
             self.tokenizer.save_pretrained(save_dir)
             torch.save(self.model.module.contrast_head.state_dict(), save_dir+"/con_weights.ckpt")
+            torch.save(self.model.module.attention.state_dict(), save_dir+"/attention_weights.ckpt")
             # Modify config file
             if self.args.mix:
                 config_file_path = save_dir+"/config.json"
@@ -110,6 +113,8 @@ class Trainer(nn.Module):
             self.model.module.dnabert2.save_pretrained(save_dir)
             self.tokenizer.save_pretrained(save_dir)
             torch.save(self.model.module.contrast_head.state_dict(), save_dir+"/con_weights.ckpt")
+            torch.save(self.model.module.attention.state_dict(), save_dir+"/attention_weights.ckpt")
+
             # Modify config file
             if self.args.mix:
                 config_file_path = save_dir+"/config.json"
@@ -129,15 +134,18 @@ class Trainer(nn.Module):
                 loss = losses["instdisc_loss"]
             else:
                 if self.args.mix_layer_num != -1:
-                    feat1, feat2, mix_rand_list, mix_lambda, _, _ = self.model(input_ids, attention_mask, \
+                    feat1, feat2, attn1, attn2, mix_rand_list, mix_lambda, _, _ = self.model(input_ids, attention_mask, \
                         mix=self.args.mix, mix_alpha=self.args.mix_alpha, mix_layer_num=self.args.mix_layer_num)
                 else:
-                    feat1, feat2, mix_rand_list, mix_lambda, _, _ = self.model(input_ids, attention_mask, \
+                    feat1, feat2, attn1, attn2, mix_rand_list, mix_lambda, _, _ = self.model(input_ids, attention_mask, \
                         mix=self.args.mix, mix_alpha=self.args.mix_alpha)
+                
                 losses = self.imix_loss(feat1, feat2, mix_rand_list, mix_lambda)
-                loss = losses["instdisc_loss"]
+                attn_loss = self.attention_loss(attn1, attn2)
+                con_loss = losses["instdisc_loss"] #why???
+                total_loss = self.attn_loss_weight * attn_loss + con_loss #attn_loss_weight should be tuned
         
-        loss.backward()
+        total_loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
         return losses
@@ -155,6 +163,7 @@ class Trainer(nn.Module):
                         load_dir = os.path.join(self.args.resPath, str(self.last_saved_step))
                         self.model.module.dnabert2.load_state_dict(torch.load(load_dir+'/pytorch_model.bin'))
                         self.model.module.contrast_head.load_state_dict(torch.load(load_dir+'/con_weights.ckpt'))
+                        self.model.module.attention.load_state_dict(torch.load(load_dir+'/attention_weights.ckpt'))
                         print('Curriculum learning: load model trained with stage I')
                     for j, batch in enumerate(epoch_iterator):
                         input_ids, attention_mask, pairsimi = self.prepare_pairwise_input(batch)

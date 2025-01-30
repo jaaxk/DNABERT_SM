@@ -14,12 +14,13 @@ class DNABert_S_Attention(nn.Module):
             self.dnabert2 = BertModel.from_pretrained("zhihan1996/DNABERT-2-117M")
         self.emb_size = self.dnabert2.pooler.dense.out_features
         self.feat_dim = feat_dim
+        self.attn_hidden_size = 256
 
         # Discriminative attention mechanism
         self.attention = nn.Sequential(
-            nn.Linear(self.emb_size, 256),
+            nn.Linear(self.emb_size, self.attn_hidden_size),
             nn.Tanh(),
-            nn.Linear(256, 1)
+            nn.Linear(self.attn_hidden_size, 1)
         )
 
         self.contrast_head = nn.Sequential(
@@ -75,10 +76,10 @@ class DNABert_S_Attention(nn.Module):
             weighted_output_1 = torch.sum(bert_output_1[0] * attention_weights_1, dim=1)
             weighted_output_2 = torch.sum(bert_output_2[0] * attention_weights_2, dim=1)
 
-            cnst_feat1, cnst_feat2 = self.contrast_logits(weighted_output_1, weighted_output_2)
+            cnst_feat1, cnst_feat2 = self.contrast_logits(weighted_output_1, weighted_output_2) #Since cnst_feat contain the contrastive learning logits for the weighted outputs, attention weights dont have to be passed to loss function
 
             if mix:
-                return cnst_feat1, cnst_feat2, mix_rand_list, mix_lambda, weighted_output_1, weighted_output_2
+                return cnst_feat1, cnst_feat2, attention_weights_1, attention_weights_2, mix_rand_list, mix_lambda, weighted_output_1, weighted_output_2
             else:
                 return cnst_feat1, cnst_feat2, weighted_output_1, weighted_output_2
 
