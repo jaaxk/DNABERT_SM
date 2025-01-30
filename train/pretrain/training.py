@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from textaugment import EDA
 from tqdm import tqdm
-from utils.contrastive_utils import HardConLoss, iMIXConLoss, AttentionLoss
+from utils.contrastive_utils import HardConLoss, iMIXConLoss
 
 class Trainer(nn.Module):
     def __init__(self, model, tokenizer, optimizer, train_loader, val_loader, args):
@@ -25,7 +25,6 @@ class Trainer(nn.Module):
             self.data_mutate = EDA()
         self.hard_loss = HardConLoss(temperature=self.args.temperature).cuda()
         self.imix_loss = iMIXConLoss(temperature=self.args.temperature).cuda()
-        self.attention_loss = AttentionLoss().cuda() #Add dist and correl weight as params
         self.curriculum = args.curriculum
 
     def get_batch_token(self, dna_seq):
@@ -126,12 +125,21 @@ class Trainer(nn.Module):
                 with open(config_file_path, 'w') as file:
                     json.dump(config_data, file, indent=4)
 
+    def check_attention_gradients(self):
+        has_grad = False
+        for param in self.model.module.attention.parameters():
+            if param.grad is not None and torch.sum(torch.abs(param.grad)) > 0:
+                has_grad = True
+                break
+        return has_grad
+
     def train_step(self, input_ids, attention_mask, pairsimi, curriculum_not_start=True):    
         with torch.autocast(device_type="cuda"):
             if (not self.args.mix) or (self.curriculum & curriculum_not_start):
                 feat1, feat2, _, _ = self.model(input_ids, attention_mask, mix=False)
                 losses = self.hard_loss(feat1, feat2, pairsimi)
                 loss = losses["instdisc_loss"]
+
             else:
                 if self.args.mix_layer_num != -1:
                     feat1, feat2, attn1, attn2, mix_rand_list, mix_lambda, _, _ = self.model(input_ids, attention_mask, \
@@ -141,11 +149,14 @@ class Trainer(nn.Module):
                         mix=self.args.mix, mix_alpha=self.args.mix_alpha)
                 
                 losses = self.imix_loss(feat1, feat2, mix_rand_list, mix_lambda)
-                attn_loss = self.attention_loss(attn1, attn2)
-                con_loss = losses["instdisc_loss"] #why???
-                total_loss = self.attn_loss_weight * attn_loss + con_loss #attn_loss_weight should be tuned
+                loss = losses["instdisc_loss"] #why???
         
-        total_loss.backward()
+        loss.backward()
+        if self.check_attention_gradients():
+            print('Gradients successfully updating')
+        else:
+            print('Gradients NOT updating')
+
         self.optimizer.step()
         self.optimizer.zero_grad()
         return losses
