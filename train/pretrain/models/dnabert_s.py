@@ -4,10 +4,10 @@ import torch.nn.functional as F
 from transformers import AutoModel
 from DNABERT2_MIX.bert_layers import BertModel
 
-class DNABert_S(nn.Module):
+class DNABert_S_Attention(nn.Module):
     def __init__(self, feat_dim=128, mix=True, model_mix_dict=None, load_dict=None, curriculum=False):
-        super(DNABert_S, self).__init__()
-        print("-----Initializing DNABert_S-----")
+        super(DNABert_S_Attention, self).__init__()
+        print("-----Initializing DNABert_S with Discriminative Attention-----")
         if (not mix) & (not curriculum):
             self.dnabert2 = AutoModel.from_pretrained("zhihan1996/DNABERT-2-117M", trust_remote_code=True)
         else:
@@ -15,46 +15,80 @@ class DNABert_S(nn.Module):
         self.emb_size = self.dnabert2.pooler.dense.out_features
         self.feat_dim = feat_dim
 
+        # Discriminative attention mechanism
+        self.attention = nn.Sequential(
+            nn.Linear(self.emb_size, 256),
+            nn.Tanh(),
+            nn.Linear(256, 1)
+        )
+
         self.contrast_head = nn.Sequential(
             nn.Linear(self.emb_size, self.emb_size, bias=False),
             nn.ReLU(inplace=True),
             nn.Linear(self.emb_size, self.feat_dim, bias=False))
-        if load_dict != None:
-            self.dnabert2.load_state_dict(torch.load(load_dict+'pytorch_model.bin'))  
+
+        if load_dict is not None:
+            self.dnabert2.load_state_dict(torch.load(load_dict+'pytorch_model.bin'))
             self.contrast_head.load_state_dict(torch.load(load_dict+'head_weights.ckpt'))
+            # Load attention weights if they exist
+            try:
+                self.attention.load_state_dict(torch.load(load_dict+'attention_weights.ckpt'))
+            except:
+                print("No pretrained attention weights found. Starting with random initialization.")
+
+    def compute_attention_weights(self, sequence_output, attention_mask):
+        # Generate attention scores
+        attention_weights = self.attention(sequence_output)  # [batch_size, seq_len, 1]
         
-    def forward(self, input_ids, attention_mask, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):        
+        # Mask out padding tokens
+        if attention_mask is not None:
+            attention_weights = attention_weights.masked_fill(
+                attention_mask.unsqueeze(-1) == 0, float('-inf')
+            )
+        
+        # Normalize attention weights
+        attention_weights = F.softmax(attention_weights, dim=1)
+        return attention_weights
+
+    def forward(self, input_ids, attention_mask, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):
         if task_type == "evaluate":
-            return self.get_mean_embeddings(input_ids, attention_mask)
+            return self.get_attention_embeddings(input_ids, attention_mask)
         else:
             input_ids_1, input_ids_2 = torch.unbind(input_ids, dim=1)
-            attention_mask_1, attention_mask_2 = torch.unbind(attention_mask, dim=1) 
+            attention_mask_1, attention_mask_2 = torch.unbind(attention_mask, dim=1)
+
             if mix:
-                bert_output_1, mix_rand_list, mix_lambda, attention_mask_1 = self.dnabert2.forward(input_ids=input_ids_1, attention_mask=attention_mask_1, mix=mix, mix_alpha=mix_alpha, mix_layer_num=mix_layer_num)
+                bert_output_1, mix_rand_list, mix_lambda, attention_mask_1 = self.dnabert2.forward(
+                    input_ids=input_ids_1, attention_mask=attention_mask_1, 
+                    mix=mix, mix_alpha=mix_alpha, mix_layer_num=mix_layer_num
+                )
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
             else:
                 bert_output_1 = self.dnabert2.forward(input_ids=input_ids_1, attention_mask=attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
-            attention_mask_1 = attention_mask_1.unsqueeze(-1)
-            attention_mask_2 = attention_mask_2.unsqueeze(-1)
-            mean_output_1 = torch.sum(bert_output_1[0]*attention_mask_1, dim=1) / torch.sum(attention_mask_1, dim=1)
-            mean_output_2 = torch.sum(bert_output_2[0]*attention_mask_2, dim=1) / torch.sum(attention_mask_2, dim=1)
-            
-            cnst_feat1, cnst_feat2 = self.contrast_logits(mean_output_1, mean_output_2)
+
+            # Compute attention weights
+            attention_weights_1 = self.compute_attention_weights(bert_output_1[0], attention_mask_1)
+            attention_weights_2 = self.compute_attention_weights(bert_output_2[0], attention_mask_2)
+
+            # Apply attention weights
+            weighted_output_1 = torch.sum(bert_output_1[0] * attention_weights_1, dim=1)
+            weighted_output_2 = torch.sum(bert_output_2[0] * attention_weights_2, dim=1)
+
+            cnst_feat1, cnst_feat2 = self.contrast_logits(weighted_output_1, weighted_output_2)
+
             if mix:
-                return cnst_feat1, cnst_feat2, mix_rand_list, mix_lambda, mean_output_1, mean_output_2
-            else:      
-                return cnst_feat1, cnst_feat2, mean_output_1, mean_output_2
-            
+                return cnst_feat1, cnst_feat2, mix_rand_list, mix_lambda, weighted_output_1, weighted_output_2
+            else:
+                return cnst_feat1, cnst_feat2, weighted_output_1, weighted_output_2
+
     def contrast_logits(self, embd1, embd2):
         feat1 = F.normalize(self.contrast_head(embd1), dim=1)
         feat2 = F.normalize(self.contrast_head(embd2), dim=1)
         return feat1, feat2
 
-    # calculate the embedding of an input sequence as the average embeddings of its tokens
-    def get_mean_embeddings(self, input_ids, attention_mask):
-        # mean embeddings
+    def get_attention_embeddings(self, input_ids, attention_mask):
         bert_output = self.dnabert2(input_ids=input_ids, attention_mask=attention_mask)
-        attention_mask = attention_mask.unsqueeze(-1)
-        embeddings = torch.sum(bert_output[0]*attention_mask, dim=1) / torch.sum(attention_mask, dim=1)
-        return embeddings
+        attention_weights = self.compute_attention_weights(bert_output[0], attention_mask)
+        embeddings = torch.sum(bert_output[0] * attention_weights, dim=1)
+        return embeddings, attention_weights  # Return weights for analysis if needed

@@ -15,7 +15,7 @@ from training import Trainer
 from dataloader.dataloader import pair_loader_csv
 from utils.utils import set_global_random_seed, setup_path
 from utils.optimizer import get_optimizer
-from models.dnabert_s import DNABert_S
+from models.dnabert_s import DNABert_S_Attention
 
 def run(args):
     args.resPath = setup_path(args)
@@ -33,7 +33,7 @@ def run(args):
     val_loader = pair_loader_csv(args, load_train=False)
 
     tokenizer = AutoTokenizer.from_pretrained("zhihan1996/DNABERT-2-117M", trust_remote_code=True)
-    model = DNABert_S(feat_dim=args.feat_dim, mix=args.mix, model_mix_dict=args.dnabert2_mix_dict, curriculum=args.curriculum)
+    model = DNABert_S_Attention(feat_dim=args.feat_dim, mix=args.mix, model_mix_dict=args.dnabert2_mix_dict, curriculum=args.curriculum)
     optimizer = get_optimizer(model, args)
     model = nn.DataParallel(model)
     model.to(device)
