@@ -67,6 +67,11 @@ class DNABert_S_Attention(nn.Module):
             else:
                 bert_output_1 = self.dnabert2.forward(input_ids=input_ids_1, attention_mask=attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
+            #debugging  
+            print(f'bert_output_1[0] = {bert_output_1[0]}')
+            print(f'attention_mask_1 = {attention_mask_1}')  
+            print(f'bert_output_1[0].size() = {bert_output_1[0].size()}')
+            print(f'attention_mask_1.size() = {attention_mask_1.size()}')   
 
             # Compute attention weights
             attention_weights_1 = self.compute_attention_weights(bert_output_1[0], attention_mask_1)
