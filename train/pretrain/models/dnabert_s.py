@@ -75,6 +75,9 @@ class DNABert_S_Attention(nn.Module):
         else:
             input_ids_1, input_ids_2 = torch.unbind(input_ids, dim=1)
             attention_mask_1, attention_mask_2 = torch.unbind(attention_mask, dim=1)
+            
+            print("Initial attention_mask_1 shape:", attention_mask_1.shape)
+            print("Initial attention_mask_1 values:", torch.sum(attention_mask_1))
 
             if mix:
                 bert_output_1, mix_rand_list, mix_lambda, attention_mask_1 = self.dnabert2.forward(
@@ -86,11 +89,20 @@ class DNABert_S_Attention(nn.Module):
                 bert_output_1 = self.dnabert2.forward(input_ids=input_ids_1, attention_mask=attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
             #debugging  
-            print(f'bert_output_1[0].size() = {bert_output_1[0].size()}')
-            print(f'attention_mask_1.size() = {attention_mask_1.size()}')   
+            print("After BERT:")
+            print("bert_output_1[0] shape:", bert_output_1[0].shape)
+            print("attention_mask_1 shape:", attention_mask_1.shape)
+            print("attention_mask_1 values:", torch.sum(attention_mask_1))   
 
             # Compute attention weights
             attention_weights_1 = self.compute_attention_weights(bert_output_1[0], attention_mask_1)
+            if attention_weights_1 is not None:
+                print("attention_weights_1 shape:", attention_weights_1.shape)
+                print("attention_weights_1 sum:", torch.sum(attention_weights_1))
+                print("attention_weights_1 min/max:", torch.min(attention_weights_1).item(), torch.max(attention_weights_1).item())
+            else:
+                print('attention_weights_1 is None')
+
             attention_weights_2 = self.compute_attention_weights(bert_output_2[0], attention_mask_2)
 
             # Apply attention weights
