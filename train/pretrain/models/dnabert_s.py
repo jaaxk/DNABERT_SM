@@ -37,44 +37,33 @@ class DNABert_S_Attention(nn.Module):
             except:
                 print("No pretrained attention weights found. Starting with random initialization.")
 
-    def compute_attention_weights(self, sequence_output, attention_mask):
-        """
-        Args:
-            sequence_output: [batch_size, seq_len, hidden_size]
-            attention_mask: [batch_size, seq_len]
-        Returns:
-            attention_weights: [batch_size, seq_len, 1]
-        """
-        if attention_mask is None:
-            print('attention_mask is None')
-            return
-
-        # Add dimension checks
-        batch_size, seq_len, hidden_size = sequence_output.size()
-        assert attention_mask.size() == (batch_size, seq_len), f"Attention mask shape mismatch. Expected {(batch_size, seq_len)}, got {attention_mask.size()}"
+    def compute_attention_weights(self, hidden_states, attention_mask):
+        print("[DEBUG] Inside compute_attention_weights")
+        print("  attention_mask shape:", attention_mask.shape)
+        print("  attention_mask values:", attention_mask)
         
-        # Generate attention scores
-        attention_weights = self.attention(sequence_output)  # [batch_size, seq_len, 1]
+        attention_scores = self.attention(hidden_states).squeeze(-1)
+        print("  attention_scores shape:", attention_scores.shape)
         
-        # Mask out padding tokens
-        attention_mask = attention_mask.bool().unsqueeze(-1)  # [batch_size, seq_len, 1]
-        attention_weights = attention_weights.masked_fill(~attention_mask, float('-inf'))
+        attention_mask = attention_mask.bool()
+        attention_scores = attention_scores.masked_fill(~attention_mask, float('-inf'))
         
-        # Normalize attention weights
-        attention_weights = F.softmax(attention_weights, dim=1)
-        
-        # Add shape check before returning
-        assert attention_weights.size() == (batch_size, seq_len, 1), \
-            f"Output shape mismatch. Expected {(batch_size, seq_len, 1)}, got {attention_weights.size()}"
-        
+        attention_weights = torch.softmax(attention_scores, dim=-1)
+        print("  attention_weights shape:", attention_weights.shape)
         return attention_weights
-
+    
     def forward(self, input_ids, attention_mask, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):
+        print("[DEBUG] Initial attention_mask shape:", attention_mask.shape)
+        print("[DEBUG] Initial attention_mask values:", attention_mask)
         if task_type == "evaluate":
             return self.get_attention_embeddings(input_ids, attention_mask)
         else:
             input_ids_1, input_ids_2 = torch.unbind(input_ids, dim=1)
-            attention_mask_1, attention_mask_2 = torch.unbind(attention_mask, dim=1)
+            if attention_mask is not None:
+                print("[DEBUG] Before unbind - attention_mask shape:", attention_mask.shape)
+                attention_mask_1, attention_mask_2 = torch.unbind(attention_mask, dim=1)
+                print("[DEBUG] After unbind - attention_mask_1 shape:", attention_mask_1.shape)
+                print("[DEBUG] After unbind - attention_mask_2 shape:", attention_mask_2.shape)
             
             print("Initial attention_mask_1 shape:", attention_mask_1.shape)
             print("Initial attention_mask_1 values:", torch.sum(attention_mask_1))
@@ -84,6 +73,8 @@ class DNABert_S_Attention(nn.Module):
                     input_ids=input_ids_1, attention_mask=attention_mask_1, 
                     mix=mix, mix_alpha=mix_alpha, mix_layer_num=mix_layer_num
                 )
+                print("[DEBUG] After BertModel.forward - attention_mask_1 shape:", attention_mask_1.shape)
+                print("[DEBUG] After BertModel.forward - attention_mask_1 values:", attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
             else:
                 bert_output_1 = self.dnabert2.forward(input_ids=input_ids_1, attention_mask=attention_mask_1)
