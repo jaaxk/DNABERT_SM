@@ -38,17 +38,35 @@ class DNABert_S_Attention(nn.Module):
                 print("No pretrained attention weights found. Starting with random initialization.")
 
     def compute_attention_weights(self, sequence_output, attention_mask):
+        """
+        Args:
+            sequence_output: [batch_size, seq_len, hidden_size]
+            attention_mask: [batch_size, seq_len]
+        Returns:
+            attention_weights: [batch_size, seq_len, 1]
+        """
+        if attention_mask is None:
+            print('attention_mask is None')
+            return
+
+        # Add dimension checks
+        batch_size, seq_len, hidden_size = sequence_output.size()
+        assert attention_mask.size() == (batch_size, seq_len), f"Attention mask shape mismatch. Expected {(batch_size, seq_len)}, got {attention_mask.size()}"
+        
         # Generate attention scores
         attention_weights = self.attention(sequence_output)  # [batch_size, seq_len, 1]
         
         # Mask out padding tokens
-        if attention_mask is not None:
-            attention_weights = attention_weights.masked_fill(
-                attention_mask.unsqueeze(-1) == 0, float('-inf')
-            )
+        attention_mask = attention_mask.bool().unsqueeze(-1)  # [batch_size, seq_len, 1]
+        attention_weights = attention_weights.masked_fill(~attention_mask, float('-inf'))
         
         # Normalize attention weights
         attention_weights = F.softmax(attention_weights, dim=1)
+        
+        # Add shape check before returning
+        assert attention_weights.size() == (batch_size, seq_len, 1), \
+            f"Output shape mismatch. Expected {(batch_size, seq_len, 1)}, got {attention_weights.size()}"
+        
         return attention_weights
 
     def forward(self, input_ids, attention_mask, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):
@@ -68,8 +86,6 @@ class DNABert_S_Attention(nn.Module):
                 bert_output_1 = self.dnabert2.forward(input_ids=input_ids_1, attention_mask=attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
             #debugging  
-            print(f'bert_output_1[0] = {bert_output_1[0]}')
-            print(f'attention_mask_1 = {attention_mask_1}')  
             print(f'bert_output_1[0].size() = {bert_output_1[0].size()}')
             print(f'attention_mask_1.size() = {attention_mask_1.size()}')   
 
