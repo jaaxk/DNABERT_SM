@@ -97,8 +97,8 @@ class DNABert_S_Attention(nn.Module):
             attention_weights_2 = self.compute_attention_weights(bert_output_2[0], attention_mask_2)
 
             # Apply attention weights
-            weighted_output_1 = torch.sum(bert_output_1[0] * attention_weights_1, dim=1)
-            weighted_output_2 = torch.sum(bert_output_2[0] * attention_weights_2, dim=1)
+            weighted_output_1 = torch.sum(bert_output_1[0] * attention_weights_1.unsqueeze(-1), dim=1)
+            weighted_output_2 = torch.sum(bert_output_2[0] * attention_weights_2.unsqueeze(-1), dim=1)
 
             cnst_feat1, cnst_feat2 = self.contrast_logits(weighted_output_1, weighted_output_2) #Since cnst_feat contain the contrastive learning logits for the weighted outputs, attention weights dont have to be passed to loss function
 
