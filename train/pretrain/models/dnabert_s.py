@@ -53,48 +53,40 @@ class DNABert_S_Attention(nn.Module):
         return attention_weights
     
     def forward(self, input_ids, attention_mask, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):
-        print("[DEBUG] Initial attention_mask shape:", attention_mask.shape)
-        print("[DEBUG] Initial attention_mask values:", attention_mask)
+        print("[DEBUG] Initial attention_mask values (1):", attention_mask)
         if task_type == "evaluate":
             return self.get_attention_embeddings(input_ids, attention_mask)
         else:
             input_ids_1, input_ids_2 = torch.unbind(input_ids, dim=1)
             if attention_mask is not None:
-                print("[DEBUG] Before unbind - attention_mask shape:", attention_mask.shape)
+                print("[DEBUG] Initial attention_mask values (2 before unbind):", attention_mask)
                 attention_mask_1, attention_mask_2 = torch.unbind(attention_mask, dim=1)
-                print("[DEBUG] After unbind - attention_mask_1 shape:", attention_mask_1.shape)
-                print("[DEBUG] After unbind - attention_mask_2 shape:", attention_mask_2.shape)
+                print("[DEBUG] Initial attention_mask values (3 after unbind):", attention_mask)
+                print(" attention_mask_1 values (3.5) after unbind:", torch.sum(attention_mask_1))
             
-            print("Initial attention_mask_1 shape:", attention_mask_1.shape)
-            print("Initial attention_mask_1 values:", torch.sum(attention_mask_1))
+            print("Initial attention_mask_1 values (4) after unbind:", torch.sum(attention_mask_1))
+            print("Initial attention_mask_2 values (5) after unbind:", torch.sum(attention_mask_2))
+            print("Initial attention_mask values (6) after unbind:", torch.sum(attention_mask))
 
             if mix:
                 bert_output_1, mix_rand_list, mix_lambda, attention_mask_1 = self.dnabert2.forward(
                     input_ids=input_ids_1, attention_mask=attention_mask_1, 
                     mix=mix, mix_alpha=mix_alpha, mix_layer_num=mix_layer_num
                 )
-                print("[DEBUG] After BertModel.forward - attention_mask_1 shape:", attention_mask_1.shape)
-                print("[DEBUG] After BertModel.forward - attention_mask_1 values:", attention_mask_1)
+                print("[DEBUG] After BertModel.forward - attention_mask_1 values (7):", attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
             else:
                 bert_output_1 = self.dnabert2.forward(input_ids=input_ids_1, attention_mask=attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
-            #debugging  
-            print("After BERT:")
-            print("bert_output_1[0] shape:", bert_output_1[0].shape)
-            print("attention_mask_1 shape:", attention_mask_1.shape)
-            print("attention_mask_1 values:", torch.sum(attention_mask_1))   
+
+            print("[DEBUG] After BertModel.forward - attention_mask_1 values (8):", attention_mask_1)
 
             # Compute attention weights
             attention_weights_1 = self.compute_attention_weights(bert_output_1[0], attention_mask_1)
-            if attention_weights_1 is not None:
-                print("attention_weights_1 shape:", attention_weights_1.shape)
-                print("attention_weights_1 sum:", torch.sum(attention_weights_1))
-                print("attention_weights_1 min/max:", torch.min(attention_weights_1).item(), torch.max(attention_weights_1).item())
-            else:
-                print('attention_weights_1 is None')
-
             attention_weights_2 = self.compute_attention_weights(bert_output_2[0], attention_mask_2)
+
+            print("[DEBUG] After BertModel.forward - attention_mask_1 values (9):", attention_mask_1)
+            print("[DEBUG] After BertModel.forward - attention_mask values (10):", attention_mask)
 
             # Apply attention weights
             weighted_output_1 = torch.sum(bert_output_1[0] * attention_weights_1.unsqueeze(-1), dim=1)
