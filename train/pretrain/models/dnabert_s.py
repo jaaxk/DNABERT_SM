@@ -40,55 +40,36 @@ class DNABert_S_Attention(nn.Module):
             # Load attention weights if they exist
 
     def compute_attention_weights(self, hidden_states, attention_mask):
-        print("[DEBUG] Inside compute_attention_weights")
-        print("  attention_mask shape:", attention_mask.shape)
-        print("  attention_mask values:", attention_mask)
-        
         attention_scores = self.attention(hidden_states).squeeze(-1)
-        print("  attention_scores shape:", attention_scores.shape)
-        
+        print('Computing attention weights')
         attention_mask = attention_mask.bool()
         attention_scores = attention_scores.masked_fill(~attention_mask, float('-inf'))
         
         attention_weights = torch.softmax(attention_scores, dim=-1)
-        print("  attention_weights shape:", attention_weights.shape)
         return attention_weights
     
     def forward(self, input_ids, attention_mask, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):
-        print("[DEBUG] Initial attention_mask values (1):", attention_mask)
         if task_type == "evaluate":
             return self.get_attention_embeddings(input_ids, attention_mask)
         else:
             input_ids_1, input_ids_2 = torch.unbind(input_ids, dim=1)
             if attention_mask is not None:
-                print("[DEBUG] Initial attention_mask values (2 before unbind):", attention_mask)
                 attention_mask_1, attention_mask_2 = torch.unbind(attention_mask, dim=1)
-                print("[DEBUG] Initial attention_mask values (3 after unbind):", attention_mask)
-                print(" attention_mask_1 values (3.5) after unbind:", torch.sum(attention_mask_1))
             
-            print("Initial attention_mask_1 values (4) after unbind:", torch.sum(attention_mask_1))
-            print("Initial attention_mask_2 values (5) after unbind:", torch.sum(attention_mask_2))
-            print("Initial attention_mask values (6) after unbind:", torch.sum(attention_mask))
-
             if mix:
                 bert_output_1, mix_rand_list, mix_lambda, attention_mask_1 = self.dnabert2.forward(
                     input_ids=input_ids_1, attention_mask=attention_mask_1, 
                     mix=mix, mix_alpha=mix_alpha, mix_layer_num=mix_layer_num
                 )
-                print("[DEBUG] After BertModel.forward - attention_mask_1 values (7):", attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
             else:
                 bert_output_1 = self.dnabert2.forward(input_ids=input_ids_1, attention_mask=attention_mask_1)
                 bert_output_2 = self.dnabert2.forward(input_ids=input_ids_2, attention_mask=attention_mask_2)
 
-            print("[DEBUG] After BertModel.forward - attention_mask_1 values (8):", attention_mask_1)
 
             # Compute attention weights
             attention_weights_1 = self.compute_attention_weights(bert_output_1[0], attention_mask_1)
             attention_weights_2 = self.compute_attention_weights(bert_output_2[0], attention_mask_2)
-
-            print("[DEBUG] After BertModel.forward - attention_mask_1 values (9):", attention_mask_1)
-            print("[DEBUG] After BertModel.forward - attention_mask values (10):", attention_mask)
 
             # Apply attention weights
             weighted_output_1 = torch.sum(bert_output_1[0] * attention_weights_1.unsqueeze(-1), dim=1)
@@ -109,5 +90,6 @@ class DNABert_S_Attention(nn.Module):
     def get_attention_embeddings(self, input_ids, attention_mask):
         bert_output = self.dnabert2(input_ids=input_ids, attention_mask=attention_mask)
         attention_weights = self.compute_attention_weights(bert_output[0], attention_mask)
-        embeddings = torch.sum(bert_output[0] * attention_weights, dim=1)
+        print('Applying weighted-sum pooling...')
+        embeddings = torch.sum(bert_output[0] * attention_weights.unsqueeze(-1), dim=1)
         return embeddings, attention_weights  # Return weights for analysis if needed
