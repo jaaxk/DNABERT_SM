@@ -27,15 +27,17 @@ class DNABert_S_Attention(nn.Module):
             nn.Linear(self.emb_size, self.emb_size, bias=False),
             nn.ReLU(inplace=True),
             nn.Linear(self.emb_size, self.feat_dim, bias=False))
+        
+        try:
+            self.attention.load_state_dict(torch.load(load_dict+'attention_weights.ckpt'))
+            print('Loading attention_weights state dict')
+        except:
+            print("No pretrained attention weights found. Starting with random initialization.")
 
         if load_dict is not None:
             self.dnabert2.load_state_dict(torch.load(load_dict+'pytorch_model.bin'))
             self.contrast_head.load_state_dict(torch.load(load_dict+'head_weights.ckpt'))
             # Load attention weights if they exist
-            try:
-                self.attention.load_state_dict(torch.load(load_dict+'attention_weights.ckpt'))
-            except:
-                print("No pretrained attention weights found. Starting with random initialization.")
 
     def compute_attention_weights(self, hidden_states, attention_mask):
         print("[DEBUG] Inside compute_attention_weights")
