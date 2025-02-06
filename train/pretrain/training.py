@@ -9,9 +9,10 @@ import torch.nn as nn
 from textaugment import EDA
 from tqdm import tqdm
 from utils.contrastive_utils import HardConLoss, iMIXConLoss
+import torch.distributed as dist
 
 class Trainer(nn.Module):
-    def __init__(self, model, tokenizer, optimizer, train_loader, val_loader, args):
+    def __init__(self, model, tokenizer, optimizer, train_loader, val_loader, args, rank):
         super(Trainer, self).__init__()
         self.args = args
         self.model = model
@@ -20,6 +21,10 @@ class Trainer(nn.Module):
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.gstep = 0
+        self.rank = rank
+
+        self.device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
+
         self.attn_loss_weight = 1 #Can be tuned!!!!
         if args.con_method == 'mutate':
             self.data_mutate = EDA()
@@ -84,46 +89,83 @@ class Trainer(nn.Module):
         input_ids = torch.cat([feat1['input_ids'].unsqueeze(1), feat2['input_ids'].unsqueeze(1)], dim=1)
         attention_mask = torch.cat([feat1['attention_mask'].unsqueeze(1), feat2['attention_mask'].unsqueeze(1)], dim=1)
         return input_ids.cuda(), attention_mask.cuda(), pairsimi.detach()
+    
+
+    def load_state_dicts(self, load_dir):
+        def broadcast_state_dict(self, state_dict):
+            # Broadcast the state dict from rank 0 to all other processes
+            for key in state_dict:
+                dist.broadcast(state_dict[key], src=0)
+            return state_dict
+
+        if self.rank == 0:  # Only rank 0 loads the state dicts
+            model_state = torch.load(load_dir + '/pytorch_model.bin')
+            contrast_state = torch.load(load_dir + '/con_weights.ckpt')
+            attention_state = torch.load(load_dir + '/attention_weights.ckpt')
+        else:
+            model_state = {}
+            contrast_state = {}
+            attention_state = {}
+
+        # Broadcast state dicts from rank 0 to all other processes
+        model_state = self.broadcast_state_dict(model_state)
+        contrast_state = self.broadcast_state_dict(contrast_state)
+        attention_state = self.broadcast_state_dict(attention_state)
+
+        # Load the state dicts into the model
+        self.model.module.dnabert2.load_state_dict(model_state)
+        self.model.module.contrast_head.load_state_dict(contrast_state)
+        self.model.module.attention.load_state_dict(attention_state)
+
 
     def save_model(self, step=None, save_best=False):
-        if save_best:
-            save_dir = os.path.join(self.args.resPath, 'best')
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
-            self.model.module.dnabert2.save_pretrained(save_dir)
-            self.tokenizer.save_pretrained(save_dir)
-            torch.save(self.model.module.contrast_head.state_dict(), save_dir+"/con_weights.ckpt")
-            torch.save(self.model.module.attention.state_dict(), save_dir+"/attention_weights.ckpt")
-            # Modify config file
-            if self.args.mix:
-                config_file_path = save_dir+"/config.json"
-                with open(config_file_path, "r") as file:
-                    config_data = json.load(file)
-                base_path = config_data["_name_or_path"]
-                for key in config_data['auto_map']:
-                    config_data['auto_map'][key] = f"{base_path}--{config_data['auto_map'][key]}"
-                with open(config_file_path, 'w') as file:
-                    json.dump(config_data, file, indent=4)
-        else:
-            save_dir = os.path.join(self.args.resPath, str(step))
-            self.last_saved_step = step
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
-            self.model.module.dnabert2.save_pretrained(save_dir)
-            self.tokenizer.save_pretrained(save_dir)
-            torch.save(self.model.module.contrast_head.state_dict(), save_dir+"/con_weights.ckpt")
-            torch.save(self.model.module.attention.state_dict(), save_dir+"/attention_weights.ckpt")
+        if self.rank == 0:
+            if save_best:
+                save_dir = os.path.join(self.args.resPath, 'best')
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
+                self.model.module.dnabert2.save_pretrained(save_dir)
+                self.tokenizer.save_pretrained(save_dir)
+                torch.save(self.model.module.contrast_head.state_dict(), save_dir+"/con_weights.ckpt")
+                torch.save(self.model.module.attention.state_dict(), save_dir+"/attention_weights.ckpt")
+                # Modify config file
+                if self.args.mix:
+                    config_file_path = save_dir+"/config.json"
+                    with open(config_file_path, "r") as file:
+                        config_data = json.load(file)
+                    base_path = config_data["_name_or_path"]
+                    for key in config_data['auto_map']:
+                        config_data['auto_map'][key] = f"{base_path}--{config_data['auto_map'][key]}"
+                    with open(config_file_path, 'w') as file:
+                        json.dump(config_data, file, indent=4)
+            else:
+                save_dir = os.path.join(self.args.resPath, str(step))
+                self.last_saved_step = step
+                last_saved_step_tensor = torch.tensor([int(step)], dtype=torch.long).to(self.device)
+                dist.broadcast(last_saved_step_tensor, src=0)
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
+                self.model.module.dnabert2.save_pretrained(save_dir)
+                self.tokenizer.save_pretrained(save_dir)
+                torch.save(self.model.module.contrast_head.state_dict(), save_dir+"/con_weights.ckpt")
+                torch.save(self.model.module.attention.state_dict(), save_dir+"/attention_weights.ckpt")
 
-            # Modify config file
-            if self.args.mix:
-                config_file_path = save_dir+"/config.json"
-                with open(config_file_path, "r") as file:
-                    config_data = json.load(file)
-                base_path = config_data["_name_or_path"]
-                for key in config_data['auto_map']:
-                    config_data['auto_map'][key] = f"{base_path}--{config_data['auto_map'][key]}"
-                with open(config_file_path, 'w') as file:
-                    json.dump(config_data, file, indent=4)
+                # Modify config file
+                if self.args.mix:
+                    config_file_path = save_dir+"/config.json"
+                    with open(config_file_path, "r") as file:
+                        config_data = json.load(file)
+                    base_path = config_data["_name_or_path"]
+                    for key in config_data['auto_map']:
+                        config_data['auto_map'][key] = f"{base_path}--{config_data['auto_map'][key]}"
+                    with open(config_file_path, 'w') as file:
+                        json.dump(config_data, file, indent=4)
+
+        else:
+            if not save_best:
+                last_saved_step_tensor = torch.tensor([0], dtype=torch.long).to(self.device)
+                dist.broadcast(last_saved_step_tensor, src=0)
+                self.last_saved_step = str(last_saved_step_tensor.item())
 
     def check_attention_gradients(self):
         has_grad = False
@@ -152,30 +194,36 @@ class Trainer(nn.Module):
                 loss = losses["instdisc_loss"] #why???
         
         loss.backward()
-        if self.check_attention_gradients():
-            print('Gradients successfully updating')
+        #if self.rank == 0:
+        #    print_once(f"Loss: {loss.item()}")
+
+        """ if self.check_attention_gradients():
+            print_once('Gradients successfully updating')
         else:
-            print('Gradients NOT updating')
+            print_once('Gradients NOT updating') """
 
         self.optimizer.step()
         self.optimizer.zero_grad()
         return losses
     
     def train(self):
+        #Synchronize self.gstep across all ranks
+        gstep_tensor = torch.tensor([self.gstep], dtype=torch.long).to(self.device)
+        dist.all_reduce(gstep_tensor, op=dist.ReduceOp.MAX)
+        self.gstep = gstep_tensor.item()
         self.all_iter = self.args.epochs * len(self.train_loader)
-        print('\n={}/{}=Iterations/Batches'.format(self.all_iter, len(self.train_loader)))
+        print_once('\n={}/{}=Iterations/Batches'.format(self.all_iter, len(self.train_loader)))
 
         self.model.train()
-        epoch_iterator = tqdm(self.train_loader, desc="Iteration")
+        epoch_iterator = tqdm(self.train_loader, desc="Iteration") if self.rank == 0 else self.train_loader
         for epoch in range(self.args.epochs):
+            self.train_loader.sampler.set_epoch(epoch) #shuffle data differently each epoch
             if self.curriculum:
                 if self.args.epochs >=3:
                     if (epoch >= int(self.args.epochs/3)) & (epoch < int(self.args.epochs/3)+1):
                         load_dir = os.path.join(self.args.resPath, str(self.last_saved_step))
-                        self.model.module.dnabert2.load_state_dict(torch.load(load_dir+'/pytorch_model.bin'))
-                        self.model.module.contrast_head.load_state_dict(torch.load(load_dir+'/con_weights.ckpt'))
-                        self.model.module.attention.load_state_dict(torch.load(load_dir+'/attention_weights.ckpt'))
-                        print('Curriculum learning: load model trained with stage I')
+                        self.load_state_dicts(load_dir)
+                        print_once('Curriculum learning: load model trained with stage I')
                     for j, batch in enumerate(epoch_iterator):
                         input_ids, attention_mask, pairsimi = self.prepare_pairwise_input(batch)
                         if epoch < int(self.args.epochs/3):
@@ -187,6 +235,7 @@ class Trainer(nn.Module):
                         if self.gstep > self.args.logging_step*self.args.logging_num:
                             break
                         self.gstep += 1
+                    
             else:
                 for j, batch in enumerate(epoch_iterator):
                     input_ids, attention_mask, pairsimi = self.prepare_pairwise_input(batch)
@@ -197,18 +246,16 @@ class Trainer(nn.Module):
                         break
                     self.gstep += 1
                 
-            print("Finish Epoch: ", epoch)
+            print_once("Finish Epoch: ", epoch)
         return None
     
     def val(self):
         self.model.eval()
         best_checkpoint = 0
         best_val_loss = 10000
-        for step in range(self.args.logging_step, np.min([self.all_iter, self.args.logging_step*self.args.logging_num+1]), self.args.logging_step):
+        for step in tqdm(range(self.args.logging_step, np.min([self.all_iter, self.args.logging_step*self.args.logging_num+1]), self.args.logging_step)):
             load_dir = os.path.join(self.args.resPath, str(step))
-            self.model.module.dnabert2.load_state_dict(torch.load(load_dir+'/pytorch_model.bin'))
-            self.model.module.contrast_head.load_state_dict(torch.load(load_dir+'/con_weights.ckpt'))
-            self.model.module.attention.load_state_dict(torch.load(load_dir+'/attention_weights.ckpt'))
+            self.load_state_dicts(load_dir)
             val_loss = 0.
             for j, batch in enumerate(self.val_loader):
                 with torch.no_grad():
@@ -223,3 +270,7 @@ class Trainer(nn.Module):
                 best_checkpoint = step
                 self.save_model(save_best=True)
     
+def print_once(*args, **kwargs):
+    #Print only once per GPU on DDP
+    if dist.get_rank() == 0:  # Only print from rank 0
+        print(*args, **kwargs)

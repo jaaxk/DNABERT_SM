@@ -41,7 +41,7 @@ class DNABert_S_Attention(nn.Module):
 
     def compute_attention_weights(self, hidden_states, attention_mask):
         attention_scores = self.attention(hidden_states).squeeze(-1)
-        print('Computing attention weights')
+        #print('Computing attention weights')
         attention_mask = attention_mask.bool()
         attention_scores = attention_scores.masked_fill(~attention_mask, float('-inf'))
         
@@ -49,7 +49,7 @@ class DNABert_S_Attention(nn.Module):
         return attention_weights
     
     def forward(self, input_ids, attention_mask, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):
-        if task_type == "evaluate":
+        if task_type == "inference": #switched from 'evaluate' to be more intuitive
             return self.get_attention_embeddings(input_ids, attention_mask)
         else:
             input_ids_1, input_ids_2 = torch.unbind(input_ids, dim=1)
@@ -92,4 +92,6 @@ class DNABert_S_Attention(nn.Module):
         attention_weights = self.compute_attention_weights(bert_output[0], attention_mask)
         print('Applying weighted-sum pooling...')
         embeddings = torch.sum(bert_output[0] * attention_weights.unsqueeze(-1), dim=1)
+        #embeddings = self.contrast_head(embeddings) #Use contrast head?
+        #embeddings = F.normalize(embeddings, dim=1)
         return embeddings, attention_weights  # Return weights for analysis if needed
