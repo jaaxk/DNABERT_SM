@@ -21,6 +21,7 @@ class Trainer(nn.Module):
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.gstep = 0
+        self.start_epoch = 0
         self.rank = rank
 
         self.device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
@@ -118,7 +119,7 @@ class Trainer(nn.Module):
         self.model.module.attention.load_state_dict(attention_state)
 
 
-    def save_model(self, step=None, save_best=False):
+    def save_model(self, step=None, epoch=None, save_best=False):
         if self.rank == 0:
             if save_best:
                 save_dir = os.path.join(self.args.resPath, 'best')
@@ -149,6 +150,11 @@ class Trainer(nn.Module):
                 self.tokenizer.save_pretrained(save_dir)
                 torch.save(self.model.module.contrast_head.state_dict(), save_dir+"/con_weights.ckpt")
                 torch.save(self.model.module.attention.state_dict(), save_dir+"/attention_weights.ckpt")
+                torch.save({
+                    'epoch': epoch,
+                    'gstep': self.gstep,
+                    'optimizer_state_dict': self.optimizer.state_dict()
+                }, save_dir+'/checkpoint.pt')
 
                 # Modify config file
                 if self.args.mix:
@@ -166,6 +172,22 @@ class Trainer(nn.Module):
                 last_saved_step_tensor = torch.tensor([0], dtype=torch.long).to(self.device)
                 dist.broadcast(last_saved_step_tensor, src=0)
                 self.last_saved_step = str(last_saved_step_tensor.item())
+
+    def load_checkpoint(self):
+        if os.path.exists(self.args.resPath):
+            print_once(f'{self.args.resPath} exists')
+            dirs = [d for d in os.listdir(self.args.resPath) if os.path.isdir(os.path.join(self.args.resPath, d))]
+            checkpoints = [int(d) for d in dirs if d.isdigit()]
+            latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
+            print_once(f'Loading from checkpoint {latest_checkpoint}')
+            self.load_state_dicts(latest_checkpoint)
+            checkpoint_data = torch.load(latest_checkpoint, map_location=self.device)
+            self.start_epoch = checkpoint_data['epoch']
+            self.gstep = checkpoint_data['gstep']
+            self.optimizer.load_state_dict(checkpoint_data['optimizer_state_dict']) #might need to do this in load_state_dicts if its causing errors
+
+        else:
+            return
 
     def check_attention_gradients(self):
         has_grad = False
@@ -206,7 +228,8 @@ class Trainer(nn.Module):
         self.optimizer.zero_grad()
         return losses
     
-    def train(self):
+    def train(self):   
+        self.load_checkpoint()
         #Synchronize self.gstep across all ranks
         gstep_tensor = torch.tensor([self.gstep], dtype=torch.long).to(self.device)
         dist.all_reduce(gstep_tensor, op=dist.ReduceOp.MAX)
@@ -216,7 +239,7 @@ class Trainer(nn.Module):
 
         self.model.train()
         epoch_iterator = tqdm(self.train_loader, desc="Iteration") if self.rank == 0 else self.train_loader
-        for epoch in range(self.args.epochs):
+        for epoch in range(start=self.start_epoch, stop=self.args.epochs):
             self.train_loader.sampler.set_epoch(epoch) #shuffle data differently each epoch
             if self.curriculum:
                 if self.args.epochs >=3:
@@ -231,7 +254,7 @@ class Trainer(nn.Module):
                         else:
                             losses = self.train_step(input_ids, attention_mask, pairsimi, curriculum_not_start=False)
                         if self.gstep%self.args.logging_step==0:
-                            self.save_model(step=self.gstep)
+                            self.save_model(step=self.gstep, epoch=epoch)
                         if self.gstep > self.args.logging_step*self.args.logging_num:
                             break
                         self.gstep += 1
@@ -241,7 +264,7 @@ class Trainer(nn.Module):
                     input_ids, attention_mask, pairsimi = self.prepare_pairwise_input(batch)
                     losses = self.train_step(input_ids, attention_mask, pairsimi)
                     if self.gstep%self.args.logging_step==0:
-                        self.save_model(step=self.gstep)
+                        self.save_model(step=self.gstep, epoch=epoch)
                     if self.gstep > self.args.logging_step*self.args.logging_num:
                         break
                     self.gstep += 1
