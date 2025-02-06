@@ -185,11 +185,12 @@ class Trainer(nn.Module):
                 self.start_epoch = checkpoint_data['epoch']
                 self.gstep = checkpoint_data['gstep']
                 self.optimizer.load_state_dict(checkpoint_data['optimizer_state_dict']) #might need to do this in load_state_dicts if its causing errors
-                print('Resume from checkpoint successful')
+                print_once('Resume from checkpoint successful')
             except:
-                print('Resume from checkpoint unsuccessful, checkpoint directory may be missing files')
+                print_once('Resume from checkpoint unsuccessful, checkpoint directory may be missing files')
 
         else:
+            print_once('No checkpoint to resume from')
             return
 
     def check_attention_gradients(self):
@@ -242,7 +243,7 @@ class Trainer(nn.Module):
 
         self.model.train()
         epoch_iterator = tqdm(self.train_loader, desc="Iteration") if self.rank == 0 else self.train_loader
-        for epoch in range(start=self.start_epoch, stop=self.args.epochs):
+        for epoch in range(self.start_epoch, self.args.epochs):
             self.train_loader.sampler.set_epoch(epoch) #shuffle data differently each epoch
             if self.curriculum:
                 if self.args.epochs >=3:
