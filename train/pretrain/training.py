@@ -91,14 +91,13 @@ class Trainer(nn.Module):
         attention_mask = torch.cat([feat1['attention_mask'].unsqueeze(1), feat2['attention_mask'].unsqueeze(1)], dim=1)
         return input_ids.cuda(), attention_mask.cuda(), pairsimi.detach()
     
+    def broadcast_state_dict(self, state_dict):
+        # Broadcast the state dict from rank 0 to all other processes
+        for key in state_dict:
+            dist.broadcast(state_dict[key], src=0)
+        return state_dict
 
     def load_state_dicts(self, load_dir):
-        def broadcast_state_dict(self, state_dict):
-            # Broadcast the state dict from rank 0 to all other processes
-            for key in state_dict:
-                dist.broadcast(state_dict[key], src=0)
-            return state_dict
-
         if self.rank == 0:  # Only rank 0 loads the state dicts
             model_state = torch.load(load_dir + '/pytorch_model.bin')
             contrast_state = torch.load(load_dir + '/con_weights.ckpt')
@@ -178,13 +177,17 @@ class Trainer(nn.Module):
             print_once(f'{self.args.resPath} exists')
             dirs = [d for d in os.listdir(self.args.resPath) if os.path.isdir(os.path.join(self.args.resPath, d))]
             checkpoints = [int(d) for d in dirs if d.isdigit()]
-            latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
-            print_once(f'Loading from checkpoint {latest_checkpoint}')
-            self.load_state_dicts(latest_checkpoint)
-            checkpoint_data = torch.load(latest_checkpoint, map_location=self.device)
-            self.start_epoch = checkpoint_data['epoch']
-            self.gstep = checkpoint_data['gstep']
-            self.optimizer.load_state_dict(checkpoint_data['optimizer_state_dict']) #might need to do this in load_state_dicts if its causing errors
+            try:
+                latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
+                print_once(f'Loading from checkpoint {latest_checkpoint}')
+                self.load_state_dicts(latest_checkpoint)
+                checkpoint_data = torch.load(latest_checkpoint, map_location=self.device)
+                self.start_epoch = checkpoint_data['epoch']
+                self.gstep = checkpoint_data['gstep']
+                self.optimizer.load_state_dict(checkpoint_data['optimizer_state_dict']) #might need to do this in load_state_dicts if its causing errors
+                print('Resume from checkpoint successful')
+            except:
+                print('Resume from checkpoint unsuccessful, checkpoint directory may be missing files')
 
         else:
             return
