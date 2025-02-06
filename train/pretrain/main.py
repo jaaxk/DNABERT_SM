@@ -59,8 +59,8 @@ def run(args):
 
     torch.cuda.set_device(local_rank)
     device = torch.device(f'cuda:{local_rank}')
-    print(f"Running on rank {local_rank}")
-    print(f"{torch.cuda.device_count()} GPUs available to use!")
+    print_once(f"Running on rank {local_rank}")
+    print_once(f"{torch.cuda.device_count()} GPUs available to use!")
 
     '''
     We assume paired training data (e.g., DNA sequences in positive pairs with two columns) 
@@ -85,9 +85,9 @@ def run(args):
     # set up the trainer
     trainer = Trainer(model, tokenizer, optimizer, train_loader, val_loader, args, local_rank)
     trainer.train()
-    print('Training finished, evaluating...')
+    print_once('Training finished, evaluating...')
     end_time = time.time()
-    print(f'Training time: {(end_time-start_time)/60:.1f} minutes.')
+    print_once(f'Training time: {(end_time-start_time)/60:.1f} minutes.')
     trainer.val()
     
     cleanup()
@@ -138,7 +138,10 @@ if __name__ == '__main__':
     world_size = torch.cuda.device_count()
     run(args)
 
-
+def print_once(*args, **kwargs):
+    #Print only once per GPU on DDP
+    if dist.get_rank() == 0:  # Only print from rank 0
+        print(*args, **kwargs)
 
     
 
