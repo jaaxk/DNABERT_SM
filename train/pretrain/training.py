@@ -92,10 +92,17 @@ class Trainer(nn.Module):
         return input_ids.cuda(), attention_mask.cuda(), pairsimi.detach()
     
     def broadcast_state_dict(self, state_dict):
-        # Broadcast the state dict from rank 0 to all other processes
-        for key in state_dict:
-            dist.broadcast(state_dict[key], src=0)
-        return state_dict
+        # Convert state dict to list of tensors for broadcasting
+        tensor_names = list(state_dict.keys())
+        tensor_values = [state_dict[name] for name in tensor_names]
+        
+        # Broadcast tensors
+        for i in range(len(tensor_values)):
+            tensor_values[i] = tensor_values[i].to(self.device)
+            dist.broadcast(tensor_values[i], src=0)
+        
+        # Recreate state dict
+        return {name: value for name, value in zip(tensor_names, tensor_values)}
 
     def load_state_dicts(self, load_dir, load_optimizer=False):
         if self.rank == 0:  # Only rank 0 loads the state dicts
