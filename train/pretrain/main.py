@@ -22,6 +22,11 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 
+def print_once(*args, **kwargs):
+    #Print only once per GPU on DDP
+    if dist.get_rank() == 0:  # Only print from rank 0
+        print(*args, **kwargs)
+
 #Using DistributedDataParallel instead of DataParallel
 def setup():
     """Initialize the distributed environment."""
@@ -138,10 +143,7 @@ if __name__ == '__main__':
     world_size = torch.cuda.device_count()
     run(args)
 
-def print_once(*args, **kwargs):
-    #Print only once per GPU on DDP
-    if dist.get_rank() == 0:  # Only print from rank 0
-        print(*args, **kwargs)
+
 
     
 
