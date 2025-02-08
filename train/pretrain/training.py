@@ -192,16 +192,14 @@ class Trainer(nn.Module):
             print_once(f'{self.args.resPath} exists')
             dirs = [d for d in os.listdir(self.args.resPath) if os.path.isdir(os.path.join(self.args.resPath, d))]
             checkpoints = [int(d) for d in dirs if d.isdigit()]
-            try:
-                latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
-                print_once(f'Loading from checkpoint {latest_checkpoint}')
-                self.load_state_dicts(latest_checkpoint, load_optimizer=True)
-                checkpoint_data = torch.load(latest_checkpoint + '/checkpoint.pt', map_location=self.device)
-                self.start_epoch = checkpoint_data['epoch']
-                self.gstep = checkpoint_data['gstep']
-                print_once(f'Resumed from epoch {self.start_epoch}, step {self.gstep}')
-            except:
-                print_once('Resume from checkpoint unsuccessful, checkpoint directory may be missing files')
+            
+            latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
+            print_once(f'Loading from checkpoint {latest_checkpoint}')
+            self.load_state_dicts(latest_checkpoint, load_optimizer=True)
+            checkpoint_data = torch.load(latest_checkpoint + '/checkpoint.pt', map_location=self.device)
+            self.start_epoch = checkpoint_data['epoch']
+            self.gstep = checkpoint_data['gstep']
+            print_once(f'Resumed from epoch {self.start_epoch}, step {self.gstep}')
 
         else:
             print_once('No checkpoint to resume from')
