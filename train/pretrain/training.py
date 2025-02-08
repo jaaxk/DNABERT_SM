@@ -91,7 +91,7 @@ class Trainer(nn.Module):
         attention_mask = torch.cat([feat1['attention_mask'].unsqueeze(1), feat2['attention_mask'].unsqueeze(1)], dim=1)
         return input_ids.cuda(), attention_mask.cuda(), pairsimi.detach()
     
-    def broadcast_state_dict(self, state_dict):
+    """ def broadcast_state_dict(self, state_dict):
         # Convert state dict to list of tensors for broadcasting
         tensor_names = list(state_dict.keys())
         tensor_values = [state_dict[name] for name in tensor_names]
@@ -102,35 +102,26 @@ class Trainer(nn.Module):
             dist.broadcast(tensor_values[i], src=0)
         
         # Recreate state dict
-        return {name: value for name, value in zip(tensor_names, tensor_values)}
+        return {name: value for name, value in zip(tensor_names, tensor_values)} """
 
     def load_state_dicts(self, load_dir, load_optimizer=False):
-        if self.rank == 0:  # Only rank 0 loads the state dicts
+        # Only rank 0 needs to load the files
+        if self.rank == 0:
             model_state = torch.load(load_dir + '/pytorch_model.bin')
             contrast_state = torch.load(load_dir + '/con_weights.ckpt')
             attention_state = torch.load(load_dir + '/attention_weights.ckpt')
             if load_optimizer:
                 optimizer_state = torch.load(load_dir + '/checkpoint.pt')['optimizer_state_dict']
-        else:
-            model_state = {}
-            contrast_state = {}
-            attention_state = {}
+        
+            # Load the state dicts into the model
+            self.model.module.dnabert2.load_state_dict(model_state)
+            self.model.module.contrast_head.load_state_dict(contrast_state)
+            self.model.module.attention.load_state_dict(attention_state)
             if load_optimizer:
-                optimizer_state = {}
+                self.optimizer.load_state_dict(optimizer_state)
 
-        # Broadcast state dicts from rank 0 to all other processes
-        model_state = self.broadcast_state_dict(model_state)
-        contrast_state = self.broadcast_state_dict(contrast_state)
-        attention_state = self.broadcast_state_dict(attention_state)
-        if load_optimizer:  
-            optimizer_state = self.broadcast_state_dict(optimizer_state)
-
-        # Load the state dicts into the model
-        self.model.module.dnabert2.load_state_dict(model_state)
-        self.model.module.contrast_head.load_state_dict(contrast_state)
-        self.model.module.attention.load_state_dict(attention_state)
-        if load_optimizer:
-            self.optimizer.load_state_dict(optimizer_state)
+        # Make sure all processes sync up
+        dist.barrier()
 
 
     def save_model(self, step=None, epoch=None, save_best=False):
