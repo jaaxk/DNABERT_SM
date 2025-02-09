@@ -11,6 +11,8 @@ from tqdm import tqdm
 from utils.contrastive_utils import HardConLoss, iMIXConLoss
 import torch.distributed as dist
 
+
+
 class Trainer(nn.Module):
     def __init__(self, model, tokenizer, optimizer, train_loader, val_loader, args, rank):
         super(Trainer, self).__init__()
@@ -190,7 +192,9 @@ class Trainer(nn.Module):
             checkpoint_data = torch.load(latest_checkpoint + '/checkpoint.pt', map_location=self.device)
             self.start_epoch = checkpoint_data['epoch']
             self.gstep = checkpoint_data['gstep']
+            
             print_once(f'Resumed from epoch {self.start_epoch}, step {self.gstep}')
+        
 
         else:
             print_once('No checkpoint to resume from')
