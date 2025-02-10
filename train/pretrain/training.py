@@ -10,7 +10,7 @@ from textaugment import EDA
 from tqdm import tqdm
 from utils.contrastive_utils import HardConLoss, iMIXConLoss
 import torch.distributed as dist
-
+import itertools
 
 
 class Trainer(nn.Module):
@@ -160,7 +160,10 @@ class Trainer(nn.Module):
                 torch.save({
                     'epoch': epoch,
                     'gstep': self.gstep,
-                    'optimizer_state_dict': self.optimizer.state_dict()
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'rng_state': torch.get_rng_state(),
+                    'random_state': random.getstate(),
+                    'numpy_random_state': np.random.get_state()
                 }, save_dir+'/checkpoint.pt')
 
                 # Modify config file
@@ -192,6 +195,9 @@ class Trainer(nn.Module):
             checkpoint_data = torch.load(latest_checkpoint + '/checkpoint.pt', map_location=self.device)
             self.start_epoch = checkpoint_data['epoch']
             self.gstep = checkpoint_data['gstep']
+            torch.set_rng_state(checkpoint_data['rng_state'])
+            random.setstate(checkpoint_data["random_state"])
+            np.random.set_state(tuple(checkpoint_data["numpy_random_state"]))
             
             print_once(f'Resumed from epoch {self.start_epoch}, step {self.gstep}')
         
@@ -249,7 +255,9 @@ class Trainer(nn.Module):
         print_once('\n={}/{}=Iterations/Batches'.format(self.all_iter, len(self.train_loader)))
 
         self.model.train()
-        epoch_iterator = tqdm(self.train_loader, desc="Iteration") if self.rank == 0 else self.train_loader
+        start_iter = self.gstep % len(self.train_loader)
+        epoch_iterator = tqdm(itertools.islice(self.train_loader, start_iter, None), desc="Batch") if self.rank == 0 else itertools.islice(self.train_loader, start_iter, None)
+        #epoch_iterator = tqdm(self.train_loader, desc="Iteration") if self.rank == 0 else self.train_loader
         for epoch in range(self.start_epoch, self.args.epochs):
             self.train_loader.sampler.set_epoch(epoch) #shuffle data differently each epoch
             if self.curriculum:

@@ -74,26 +74,10 @@ def run(args):
     train_dataset = pair_loader_csv(args, load_train=True)
     val_loader = pair_loader_csv(args, load_train=False)
 
-    train_sampler = DistributedSampler(train_dataset.dataset, shuffle=True)
+    train_sampler = DistributedSampler(train_dataset.dataset, shuffle=False)
     train_loader = torch.utils.data.DataLoader(
     train_dataset.dataset, batch_size=args.train_batch_size, sampler=train_sampler, num_workers=args.num_workers
     )
-    if os.path.exists(self.args.resPath):
-        dirs = [d for d in os.listdir(self.args.resPath) if os.path.isdir(os.path.join(self.args.resPath, d))]
-        if dirs != []:
-            if not 'best' in dirs:
-                checkpoints = [int(d) for d in dirs if d.isdigit()]
-                latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
-                checkpoint_data = torch.load(latest_checkpoint + '/checkpoint.pt', map_location=device)
-                gstep = checkpoint_data['gstep']
-
-                from torch.utils.data import Subset
-                resume_index = gstep % len(train_dataset.dataset)
-                new_dataset = Subset(train_dataset.dataset, range(resume_index, len(train_dataset.dataset)))
-                train_loader = torch.utils.data.DataLoader(new_dataset, batch_size=args.train_batch_size, sampler=train_sampler, num_workers=args.num_workers)
-                print_once(f'Resumed train_loader from checkpoint {gstep}')
-
-
 
     tokenizer = AutoTokenizer.from_pretrained("zhihan1996/DNABERT-2-117M", trust_remote_code=True)
     model = DNABert_S_Attention(feat_dim=args.feat_dim, mix=args.mix, model_mix_dict=args.dnabert2_mix_dict, curriculum=args.curriculum)

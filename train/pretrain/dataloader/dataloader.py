@@ -39,7 +39,7 @@ def pair_loader_csv(args, load_train=True):
 
     dataset = PairSamples(seq1, seq2, pairsimi)
     if load_train:
-        loader = util_data.DataLoader(dataset, batch_size=args.train_batch_size, shuffle=True, num_workers=4)
+        loader = util_data.DataLoader(dataset, batch_size=args.train_batch_size, shuffle=False, num_workers=4)
     else:
         loader = util_data.DataLoader(dataset, batch_size=args.val_batch_size, shuffle=False, num_workers=4)
     return loader
