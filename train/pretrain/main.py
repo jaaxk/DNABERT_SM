@@ -140,6 +140,7 @@ def get_args(argv):
 if __name__ == '__main__':
     args = get_args(sys.argv[1:])
     world_size = torch.cuda.device_count()
+    args.world_size = world_size
     run(args)
 
 

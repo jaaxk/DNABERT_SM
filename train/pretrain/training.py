@@ -255,8 +255,11 @@ class Trainer(nn.Module):
         print_once('\n={}/{}=Iterations/Batches'.format(self.all_iter, len(self.train_loader)))
 
         self.model.train()
-        start_iter = self.gstep % len(self.train_loader)
-        epoch_iterator = tqdm(itertools.islice(self.train_loader, start_iter, None), desc="Batch") if self.rank == 0 else itertools.islice(self.train_loader, start_iter, None)
+        start_iter = (self.gstep//self.args.world_size) % len(self.train_loader)
+        total=len(self.train_loader) - start_iter
+        if self.gstep!=0:
+            print(f'Rank: {str(self.rank)}, start: {start_iter}, total: {total}, train_loader length: {len(self.train_loader)}') #Make sure train_loader lengths aren't vastly different (should be at most 1)
+        epoch_iterator = tqdm(itertools.islice(self.train_loader, start_iter, None), desc="Batch", total=total) if self.rank == 0 else itertools.islice(self.train_loader, start_iter, None)
         #epoch_iterator = tqdm(self.train_loader, desc="Iteration") if self.rank == 0 else self.train_loader
         for epoch in range(self.start_epoch, self.args.epochs):
             self.train_loader.sampler.set_epoch(epoch) #shuffle data differently each epoch
@@ -287,7 +290,7 @@ class Trainer(nn.Module):
                     if self.gstep > self.args.logging_step*self.args.logging_num:
                         break
                     self.gstep += 1
-                
+            print(f'Rank {self.rank} finished epoch {epoch} at global step {self.gstep}') #gsteps should be one apart
             print_once("Finish Epoch: ", epoch)
         return None
     
