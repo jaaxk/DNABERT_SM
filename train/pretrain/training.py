@@ -165,6 +165,7 @@ class Trainer(nn.Module):
                     'random_state': random.getstate(),
                     'numpy_random_state': np.random.get_state()
                 }, save_dir+'/checkpoint.pt')
+                torch.save(self.model, 'dnabert_s_attention_model.pth')
 
                 # Modify config file
                 if self.args.mix:

@@ -157,12 +157,25 @@ def calculate_llm_embedding(dna_sequences, model_name_or_path, model_max_length=
 
     is_hyenadna = "hyenadna" in model_name_or_path
     is_nt = "nucleotide-transformer" in model_name_or_path
+    is_attention = "attention" in model_name_or_path
     
     if is_nt:
         model = transformers.AutoModelForMaskedLM.from_pretrained(
             model_name_or_path,
             trust_remote_code=True,
         ) 
+    elif is_attention:
+        #Temporary way to import model
+        import sys
+        import os
+        script_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../train/pretrain/models"))
+        sys.path.insert(0, script_dir)
+
+        # Import the module
+        from dnabert_s import DNABert_S_Attention
+        model = DNABert_S_Attention(load_dict=model_name_or_path)
+        model.eval()
+
     else:
         model = transformers.AutoModel.from_pretrained(
                 model_name_or_path,
@@ -191,11 +204,14 @@ def calculate_llm_embedding(dna_sequences, model_name_or_path, model_max_length=
             attention_mask = token_feat['attention_mask'].cuda()
             if is_hyenadna:
                 model_output = model.forward(input_ids=input_ids)[0].detach().cpu()
+            elif is_attention:
+                model_output = model(input_ids=input_ids, attention_mask=attention_mask, task_type='inference')[0].detach().cpu()
             else:
                 model_output = model.forward(input_ids=input_ids, attention_mask=attention_mask)[0].detach().cpu()
                 
             attention_mask = attention_mask.unsqueeze(-1).detach().cpu()
-            embedding = torch.sum(model_output*attention_mask, dim=1) / torch.sum(attention_mask, dim=1)
+            if not is_attention:
+                embedding = torch.sum(model_output*attention_mask, dim=1) / torch.sum(attention_mask, dim=1)
             
             if j==0:
                 embeddings = embedding

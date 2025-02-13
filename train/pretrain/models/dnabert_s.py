@@ -28,27 +28,30 @@ class DNABert_S_Attention(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(self.emb_size, self.feat_dim, bias=False))
         
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         try:
-            self.attention.load_state_dict(torch.load(load_dict+'attention_weights.ckpt'))
+            self.attention.load_state_dict(torch.load(load_dict+'attention_weights.ckpt', map_location=device))
             print('Loading attention_weights state dict')
         except:
             print("No pretrained attention weights found. Starting with random initialization.")
 
         if load_dict is not None:
-            self.dnabert2.load_state_dict(torch.load(load_dict+'pytorch_model.bin'))
-            self.contrast_head.load_state_dict(torch.load(load_dict+'head_weights.ckpt'))
+            self.dnabert2.load_state_dict(torch.load(load_dict+'pytorch_model.bin', map_location=device))
+            self.contrast_head.load_state_dict(torch.load(load_dict+'con_weights.ckpt', map_location=device)) #Can probably comment this out in inference
             # Load attention weights if they exist
 
     def compute_attention_weights(self, hidden_states, attention_mask):
         attention_scores = self.attention(hidden_states).squeeze(-1)
         #print('Computing attention weights')
-        attention_mask = attention_mask.bool()
-        attention_scores = attention_scores.masked_fill(~attention_mask, float('-inf'))
+        if attention_mask is not None:
+            attention_mask = attention_mask.bool()
+            attention_scores = attention_scores.masked_fill(~attention_mask, float('-inf'))
         
         attention_weights = torch.softmax(attention_scores, dim=-1)
         return attention_weights
     
-    def forward(self, input_ids, attention_mask, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):
+    def forward(self, input_ids, attention_mask=None, task_type='train', mix=True, mix_alpha=1.0, mix_layer_num=-1):
         if task_type == "inference": #switched from 'evaluate' to be more intuitive
             return self.get_attention_embeddings(input_ids, attention_mask)
         else:
@@ -88,7 +91,11 @@ class DNABert_S_Attention(nn.Module):
         return feat1, feat2
 
     def get_attention_embeddings(self, input_ids, attention_mask):
-        bert_output = self.dnabert2(input_ids=input_ids, attention_mask=attention_mask)
+        if attention_mask is None:
+            bert_output = self.dnabert2(input_ids=input_ids)
+        else:
+            bert_output = self.dnabert2(input_ids=input_ids, attention_mask=attention_mask)
+
         attention_weights = self.compute_attention_weights(bert_output[0], attention_mask)
         print('Applying weighted-sum pooling...')
         embeddings = torch.sum(bert_output[0] * attention_weights.unsqueeze(-1), dim=1)
