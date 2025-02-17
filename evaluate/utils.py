@@ -168,11 +168,10 @@ def calculate_llm_embedding(dna_sequences, model_name_or_path, model_max_length=
         #Temporary way to import model
         import sys
         import os
-        script_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../train/pretrain/models"))
-        sys.path.insert(0, script_dir)
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../train/pretrain"))
+        sys.path.insert(0, root_dir)
 
-        # Import the module
-        from dnabert_s import DNABert_S_Attention
+        from models.dnabert_s import DNABert_S_Attention
         model = DNABert_S_Attention(load_dict=model_name_or_path)
         model.eval()
 
@@ -212,6 +211,8 @@ def calculate_llm_embedding(dna_sequences, model_name_or_path, model_max_length=
             attention_mask = attention_mask.unsqueeze(-1).detach().cpu()
             if not is_attention:
                 embedding = torch.sum(model_output*attention_mask, dim=1) / torch.sum(attention_mask, dim=1)
+            else:
+                embedding = model_output
             
             if j==0:
                 embeddings = embedding

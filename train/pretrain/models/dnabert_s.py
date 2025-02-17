@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModel
 from DNABERT2_MIX.bert_layers import BertModel
+import os
 
 class DNABert_S_Attention(nn.Module):
     def __init__(self, feat_dim=128, mix=True, model_mix_dict=None, load_dict=None, curriculum=False):
@@ -31,14 +32,14 @@ class DNABert_S_Attention(nn.Module):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         try:
-            self.attention.load_state_dict(torch.load(load_dict+'attention_weights.ckpt', map_location=device))
+            self.attention.load_state_dict(torch.load(os.path.join(load_dict, 'attention_weights.ckpt'), map_location=device))
             print('Loading attention_weights state dict')
         except:
             print("No pretrained attention weights found. Starting with random initialization.")
 
         if load_dict is not None:
-            self.dnabert2.load_state_dict(torch.load(load_dict+'pytorch_model.bin', map_location=device))
-            self.contrast_head.load_state_dict(torch.load(load_dict+'con_weights.ckpt', map_location=device)) #Can probably comment this out in inference
+            self.dnabert2.load_state_dict(torch.load(os.path.join(load_dict, 'pytorch_model.bin'), map_location=device))
+            self.contrast_head.load_state_dict(torch.load(os.path.join(load_dict, 'con_weights.ckpt'), map_location=device)) #Can probably comment this out in inference
             # Load attention weights if they exist
 
     def compute_attention_weights(self, hidden_states, attention_mask):
@@ -97,7 +98,6 @@ class DNABert_S_Attention(nn.Module):
             bert_output = self.dnabert2(input_ids=input_ids, attention_mask=attention_mask)
 
         attention_weights = self.compute_attention_weights(bert_output[0], attention_mask)
-        print('Applying weighted-sum pooling...')
         embeddings = torch.sum(bert_output[0] * attention_weights.unsqueeze(-1), dim=1)
         #embeddings = self.contrast_head(embeddings) #Use contrast head?
         #embeddings = F.normalize(embeddings, dim=1)

@@ -25,6 +25,7 @@ class Trainer(nn.Module):
         self.gstep = 0
         self.start_epoch = 0
         self.rank = rank
+        self.resume = False
 
         self.device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
 
@@ -113,7 +114,7 @@ class Trainer(nn.Module):
             contrast_state = torch.load(load_dir + '/con_weights.ckpt')
             attention_state = torch.load(load_dir + '/attention_weights.ckpt')
             if load_optimizer:
-                optimizer_state = torch.load(load_dir + '/checkpoint.pt')['optimizer_state_dict']
+                optimizer_state = torch.load(load_dir + '/checkpoint.pt', weights_only=False)['optimizer_state_dict']
         
             # Load the state dicts into the model
             self.model.module.dnabert2.load_state_dict(model_state)
@@ -165,7 +166,7 @@ class Trainer(nn.Module):
                     'random_state': random.getstate(),
                     'numpy_random_state': np.random.get_state()
                 }, save_dir+'/checkpoint.pt')
-                torch.save(self.model, 'dnabert_s_attention_model.pth')
+                torch.save(self.model, save_dir+'/dnabert_s_attention_model.pth')
 
                 # Modify config file
                 if self.args.mix:
@@ -193,12 +194,16 @@ class Trainer(nn.Module):
             latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
             print_once(f'Loading from checkpoint {latest_checkpoint}')
             self.load_state_dicts(latest_checkpoint, load_optimizer=True)
-            checkpoint_data = torch.load(latest_checkpoint + '/checkpoint.pt', map_location=self.device)
+            checkpoint_data = torch.load(latest_checkpoint + '/checkpoint.pt', map_location=self.device, weights_only=False)
             self.start_epoch = checkpoint_data['epoch']
             self.gstep = checkpoint_data['gstep']
+            if not isinstance(checkpoint_data['rng_state'], torch.ByteTensor):
+                print_once('[DEBUG] rng_state is not torch.ByteTensor, typecasting it')
+                checkpoint_data['rng_state'] = torch.ByteTensor(checkpoint_data['rng_state'].cpu())
             torch.set_rng_state(checkpoint_data['rng_state'])
             random.setstate(checkpoint_data["random_state"])
             np.random.set_state(tuple(checkpoint_data["numpy_random_state"]))
+            self.resume = True
             
             print_once(f'Resumed from epoch {self.start_epoch}, step {self.gstep}')
         
@@ -256,13 +261,16 @@ class Trainer(nn.Module):
         print_once('\n={}/{}=Iterations/Batches'.format(self.all_iter, len(self.train_loader)))
 
         self.model.train()
-        start_iter = (self.gstep//self.args.world_size) % len(self.train_loader)
-        total=len(self.train_loader) - start_iter
-        if self.gstep!=0:
-            print(f'Rank: {str(self.rank)}, start: {start_iter}, total: {total}, train_loader length: {len(self.train_loader)}') #Make sure train_loader lengths aren't vastly different (should be at most 1)
-        epoch_iterator = tqdm(itertools.islice(self.train_loader, start_iter, None), desc="Batch", total=total) if self.rank == 0 else itertools.islice(self.train_loader, start_iter, None)
-        #epoch_iterator = tqdm(self.train_loader, desc="Iteration") if self.rank == 0 else self.train_loader
+
         for epoch in range(self.start_epoch, self.args.epochs):
+            if self.resume:
+                start_iter = (self.gstep) % len(self.train_loader)
+                total=len(self.train_loader) - start_iter
+                print(f'Rank: {str(self.rank)}, start: {start_iter}, total: {total}, train_loader length: {len(self.train_loader)}') #Make sure train_loader lengths aren't vastly different (should be at most 1)
+                epoch_iterator = tqdm(itertools.islice(self.train_loader, start_iter, None), desc="Batch", total=total) if self.rank == 0 else itertools.islice(self.train_loader, start_iter, None)
+                self.resume=False
+            else:
+                epoch_iterator = tqdm(self.train_loader, desc="Iteration") if self.rank == 0 else self.train_loader
             self.train_loader.sampler.set_epoch(epoch) #shuffle data differently each epoch
             if self.curriculum:
                 if self.args.epochs >=3:
@@ -279,6 +287,7 @@ class Trainer(nn.Module):
                         if self.gstep%self.args.logging_step==0:
                             self.save_model(step=self.gstep, epoch=epoch)
                         if self.gstep > self.args.logging_step*self.args.logging_num:
+                            print_once(f'**WARNING breaking at gstep {self.gstep}, self.args.logging_step*self.args.logging_num = {self.args.logging_step*self.args.logging_num}')
                             break
                         self.gstep += 1
                     
@@ -289,6 +298,7 @@ class Trainer(nn.Module):
                     if self.gstep%self.args.logging_step==0:
                         self.save_model(step=self.gstep, epoch=epoch)
                     if self.gstep > self.args.logging_step*self.args.logging_num:
+                        print_once(f'**WARNING breaking at gstep {self.gstep}, self.args.logging_step*self.args.logging_num = {self.args.logging_step*self.args.logging_num}, self.curriculum = False')
                         break
                     self.gstep += 1
             print(f'Rank {self.rank} finished epoch {epoch} at global step {self.gstep}') #gsteps should be one apart

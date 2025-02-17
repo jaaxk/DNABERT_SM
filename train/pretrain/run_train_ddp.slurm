@@ -35,7 +35,7 @@ torchrun \
     --val_dataname val_48k.csv \
     --seed 1 \
     --logging_step 10000 \
-    --logging_num 12 \
+    --logging_num 48 \
     --max_length 2000 \
     --train_batch_size 6 \
     --val_batch_size 45 \

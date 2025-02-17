@@ -74,7 +74,7 @@ def main(args):
                 print(f"Get {len(dna_sequences)} sequences, {num_clusters} clusters")   
 
                 # generate embedding
-                embedding = get_embedding(dna_sequences, model, species, sample, task_name="binning")
+                embedding = get_embedding(dna_sequences, model, species, sample, task_name="binning", test_model_dir=args.test_model_dir)
                 if len(embedding) > len(filterd_idx):
                     embedding = embedding[np.array(filterd_idx)]
                 embedding_norm = normalize(embedding)
