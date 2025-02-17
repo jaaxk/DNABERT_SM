@@ -26,6 +26,7 @@ class Trainer(nn.Module):
         self.start_epoch = 0
         self.rank = rank
         self.resume = False
+        self.skip_train = False
 
         self.device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
 
@@ -35,6 +36,7 @@ class Trainer(nn.Module):
         self.hard_loss = HardConLoss(temperature=self.args.temperature).cuda()
         self.imix_loss = iMIXConLoss(temperature=self.args.temperature).cuda()
         self.curriculum = args.curriculum
+        
 
     def get_batch_token(self, dna_seq):
         max_length = self.args.max_length
@@ -137,6 +139,7 @@ class Trainer(nn.Module):
                 self.tokenizer.save_pretrained(save_dir)
                 torch.save(self.model.module.contrast_head.state_dict(), save_dir+"/con_weights.ckpt")
                 torch.save(self.model.module.attention.state_dict(), save_dir+"/attention_weights.ckpt")
+                torch.save(self.model, save_dir+'/dnabert_s_attention_model.pth')
                 # Modify config file
                 if self.args.mix:
                     config_file_path = save_dir+"/config.json"
@@ -189,6 +192,9 @@ class Trainer(nn.Module):
         if os.path.exists(self.args.resPath):
             print_once(f'{self.args.resPath} exists')
             dirs = [d for d in os.listdir(self.args.resPath) if os.path.isdir(os.path.join(self.args.resPath, d))]
+            if 'best' in dirs:
+                print_once('***Skipping training, moving to validation')
+                self.skip_train = True
             checkpoints = [int(d) for d in dirs if d.isdigit()]
             
             latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
@@ -253,6 +259,9 @@ class Trainer(nn.Module):
     
     def train(self):   
         self.load_checkpoint()
+        if self.skip_train:
+            print_once('Skipping training...')
+            return None
         #Synchronize self.gstep across all ranks
         gstep_tensor = torch.tensor([self.gstep], dtype=torch.long).to(self.device)
         dist.all_reduce(gstep_tensor, op=dist.ReduceOp.MAX)
