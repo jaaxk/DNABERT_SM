@@ -8,6 +8,9 @@ import os
 
 from scipy.optimize import linear_sum_assignment
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
 def get_embedding(dna_sequences, 
                   model, 
                   species, 
@@ -181,12 +184,14 @@ def calculate_llm_embedding(dna_sequences, model_name_or_path, model_max_length=
                 trust_remote_code=True,
             )
     
+    if device == 'cuda':
+        n_gpu = torch.cuda.device_count()
+        if n_gpu > 1:
+            model = nn.DataParallel(model)
+    else:
+        n_gpu = 1
 
-    n_gpu = torch.cuda.device_count()
-    if n_gpu > 1:
-        model = nn.DataParallel(model)
-        
-    model.to("cuda")
+    model.to(device)
 
 
     train_loader = util_data.DataLoader(dna_sequences, batch_size=batch_size*n_gpu, shuffle=False, num_workers=2*n_gpu)
@@ -199,8 +204,8 @@ def calculate_llm_embedding(dna_sequences, model_name_or_path, model_max_length=
                     padding='longest', 
                     truncation=True
                 )
-            input_ids = token_feat['input_ids'].cuda()
-            attention_mask = token_feat['attention_mask'].cuda()
+            input_ids = token_feat['input_ids'].to(device)
+            attention_mask = token_feat['attention_mask'].to(device)
             if is_hyenadna:
                 model_output = model.forward(input_ids=input_ids)[0].detach().cpu()
             elif is_attention:
