@@ -319,11 +319,45 @@ class Trainer(nn.Module):
             print_once("Finish Epoch: ", epoch)
         return None
     
+    def save_val_checkpoint(self, step, best_val_loss, best_checkpoint):
+        save_file = os.path.join(self.args.resPath, 'val_checkpoint.pt')
+        torch.save({
+                   'step': step,
+                   'best_val_loss': best_val_loss,
+                   'best_checkpoint': best_checkpoint
+                }, save_file)
+        return None
+    
+    def load_val_checkpoint(self):
+        checkpoint_file = os.path.join(self.args.resPath, 'val_checkpoint.pt')
+        if os.path.exists(checkpoint_file):
+            print_once(f'Loading validation checkpoint from {checkpoint_file}')
+            checkpoint_data = torch.load(checkpoint_file, map_location=self.device, weights_only=False)
+            return checkpoint_data
+
+        else:
+            print_once(f'No checkpoint to load from, starting validation from checkpoint 0')
+            return None
+
+
     def val(self):
         self.model.eval()
-        best_checkpoint = 0
-        best_val_loss = 10000
+        checkpoint_data = self.load_val_checkpoint()
+        if checkpoint_data is None:     
+            best_checkpoint = 0
+            best_val_loss = 10000
+            start_step = 0
+        else:
+            best_checkpoint = checkpoint_data['best_checkpoint']
+            best_val_loss = checkpoint_data['best_val_loss']
+            start_step = checkpoint_data['step']
+
+        skipped = 0
         for step in tqdm(range(self.args.logging_step, np.min([self.all_iter, self.args.logging_step*self.args.logging_num+1]), self.args.logging_step)):
+            if skipped < start_step:
+                skipped += 1
+                continue
+                
             load_dir = os.path.join(self.args.resPath, str(step))
             self.load_state_dicts(load_dir)
             val_loss = 0.
