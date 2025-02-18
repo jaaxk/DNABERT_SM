@@ -13,6 +13,7 @@ import torch.distributed as dist
 import itertools
 
 
+
 class Trainer(nn.Module):
     def __init__(self, model, tokenizer, optimizer, train_loader, val_loader, args, rank):
         super(Trainer, self).__init__()
@@ -28,6 +29,7 @@ class Trainer(nn.Module):
         self.resume = False
         self.skip_train = False
 
+        self.writer = torch.utils.tensorboard.SummaryWriter(log_dir=os.path.join(self.args.resPath, 'logs'))
         self.device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
 
         self.attn_loss_weight = 1 #Can be tuned!!!!
@@ -294,6 +296,9 @@ class Trainer(nn.Module):
                         else:
                             losses = self.train_step(input_ids, attention_mask, pairsimi, curriculum_not_start=False)
                         if self.gstep%self.args.logging_step==0:
+                            if self.rank==0:
+                                self.writer.add_scalar('Loss/train', losses.item(), epoch)
+                            #What other metrics should we track?
                             self.save_model(step=self.gstep, epoch=epoch)
                         if self.gstep > self.args.logging_step*self.args.logging_num:
                             print_once(f'**WARNING breaking at gstep {self.gstep}, self.args.logging_step*self.args.logging_num = {self.args.logging_step*self.args.logging_num}')
