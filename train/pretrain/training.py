@@ -320,12 +320,13 @@ class Trainer(nn.Module):
         return None
     
     def save_val_checkpoint(self, step, best_val_loss, best_checkpoint):
-        save_file = os.path.join(self.args.resPath, 'val_checkpoint.pt')
-        torch.save({
-                   'step': step,
-                   'best_val_loss': best_val_loss,
-                   'best_checkpoint': best_checkpoint
-                }, save_file)
+        if self.rank==0:
+            save_file = os.path.join(self.args.resPath, 'val_checkpoint.pt')
+            torch.save({
+                    'step': step,
+                    'best_val_loss': best_val_loss,
+                    'best_checkpoint': best_checkpoint
+                    }, save_file)
         return None
     
     def load_val_checkpoint(self):
@@ -373,7 +374,8 @@ class Trainer(nn.Module):
                 best_val_loss = val_loss
                 best_checkpoint = step
                 self.save_model(save_best=True)
-            self.writer.add_scalar('Loss/validation', val_loss, step)
+            if self.rank==0:
+                self.writer.add_scalar('Loss/validation', val_loss, step)
 
     
 def print_once(*args, **kwargs):
