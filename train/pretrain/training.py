@@ -297,7 +297,7 @@ class Trainer(nn.Module):
                             losses = self.train_step(input_ids, attention_mask, pairsimi, curriculum_not_start=False)
                         if self.gstep%self.args.logging_step==0:
                             if self.rank==0:
-                                self.writer.add_scalar('Loss/train', losses.item(), epoch)
+                                self.writer.add_scalar('Loss/train', losses, self.gstep) #losses.item()?
                             #What other metrics should we track?
                             self.save_model(step=self.gstep, epoch=epoch)
                         if self.gstep > self.args.logging_step*self.args.logging_num:
@@ -373,6 +373,8 @@ class Trainer(nn.Module):
                 best_val_loss = val_loss
                 best_checkpoint = step
                 self.save_model(save_best=True)
+            self.writer.add_scalar('Loss/validation', val_loss, step)
+
     
 def print_once(*args, **kwargs):
     #Print only once per GPU on DDP
