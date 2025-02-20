@@ -20,9 +20,17 @@ class DNABert_S_Attention(nn.Module):
         # Discriminative attention mechanism
         self.attention = nn.Sequential(
             nn.Linear(self.emb_size, self.attn_hidden_size),
-            nn.Tanh(),
+            nn.LayerNorm(self.attn_hidden_size),
+            nn.ReLU(),
+            nn.Linear(self.attn_hidden_size, self.attn_hidden_size),
+            nn.LayerNorm(self.attn_hidden_size),
+            nn.ReLU(),
             nn.Linear(self.attn_hidden_size, 1)
         )
+
+        #new to v1.1, initialize final layer's weights and biases to 0 so that behavior is initially simialr to mean-pooling, then learns from there
+        nn.init.zeros_(self.attention[-1].weight)
+        nn.init.constant_(self.attention[-1].bias, 0)
 
         self.contrast_head = nn.Sequential(
             nn.Linear(self.emb_size, self.emb_size, bias=False),

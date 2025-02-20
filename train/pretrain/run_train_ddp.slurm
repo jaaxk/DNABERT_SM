@@ -5,6 +5,11 @@
 #SBATCH --output=res_ddp.txt           # Standard output and error log
 #SBATCH --gres=gpu:4         # Request 4 GPUs
 #SBATCH --mem=250G
+#SBATCH --nodes=1
+#SBATCH --exclusive
+
+nvidia-smi
+echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 
 source /gpfs/scratch/jvaska/DNABERT_SM/myenv/bin/activate
 
@@ -21,8 +26,6 @@ echo "MASTER_PORT: $MASTER_PORT"
 echo "SLURM_PROCID: $SLURM_PROCID"
 echo "SLURM_LOCALID: $SLURM_LOCALID"
 
-module load pytorch-gpu
-
 torchrun \
     --nnodes=1 \
     --nproc_per_node=4 \
@@ -34,12 +37,13 @@ torchrun \
     --train_dataname ${TRAIN_FILE} \
     --val_dataname val_48k.csv \
     --seed 1 \
-    --logging_step 10000 \
-    --logging_num 24 \
+    --logging_step 5000 \
+    --logging_num 72 \
     --max_length 2000 \
-    --train_batch_size 6 \
+    --train_batch_size 8 \
     --val_batch_size 45 \
-    --lr 3e-06 \
+    --lr 5e-07 \
+    --fp16 \
     --lr_scale 100 \
     --epochs 3 \
     --feat_dim 128 \

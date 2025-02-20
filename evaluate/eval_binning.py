@@ -1,5 +1,8 @@
+print('Start of script')
 from sklearn.preprocessing import normalize
+print('debug1')
 import csv
+print('debug2')
 import argparse
 import os
 import sys
@@ -7,15 +10,18 @@ import collections
 import numpy as np
 import sklearn.metrics
 
-
+print('debug3')
 from utils import get_embedding, KMedoid, align_labels_via_hungarian_algorithm, compute_class_center_medium_similarity
 
+print('debug4')
 csv.field_size_limit(sys.maxsize)
+print('debug5')
 csv.field_size_limit(sys.maxsize)
 max_length = 20000
 
 
 def main(args):
+    print('debug6')
     model_list = args.model_list.split(",")
     for model in model_list:
         for species in ["reference", "marine", "plant"]:
@@ -75,11 +81,13 @@ def main(args):
 
                 # generate embedding
                 embedding = get_embedding(dna_sequences, model, species, sample, task_name="binning", test_model_dir=args.test_model_dir)
+                print('Got embeddings')
                 if len(embedding) > len(filterd_idx):
                     embedding = embedding[np.array(filterd_idx)]
                 embedding_norm = normalize(embedding)
                 # percentile_values = compute_within_class_similarity(embedding_norm, labels_bin)
                 
+                print('Run KMedoid')
                 binning_results = KMedoid(embedding_norm, min_similarity=threshold, min_bin_size=10, max_iter=1000)
                 print(len(np.unique(binning_results)))
                 
@@ -114,5 +122,6 @@ if __name__ == "__main__":
     parser.add_argument('--test_model_dir', type=str, default="/root/trained_model", help='Directory to save trained models to test')
     parser.add_argument('--model_list', type=str, default="test", help='List of models to evaluate, separated by comma. Currently support [tnf, tnf-k, dnabert2, hyenadna, nt, test]')
     parser.add_argument('--data_dir', type=str, default="/root/data", help='Data directory')
+    parser.add_argument('--attention', action='store_true')
     args = parser.parse_args()
     main(args)

@@ -11,6 +11,8 @@ from tqdm import tqdm
 from utils.contrastive_utils import HardConLoss, iMIXConLoss
 import torch.distributed as dist
 import itertools
+from torch.utils.tensorboard import SummaryWriter
+from torch.cuda.amp import autocast, GradScaler
 
 
 
@@ -29,7 +31,10 @@ class Trainer(nn.Module):
         self.resume = False
         self.skip_train = False
 
-        self.writer = torch.utils.tensorboard.SummaryWriter(log_dir=os.path.join(self.args.resPath, 'logs'))
+        if self.args.fp16:
+            self.scaler = GradScaler()
+
+        self.writer = SummaryWriter(log_dir=os.path.join(self.args.resPath, 'logs'))
         self.device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
 
         self.attn_loss_weight = 1 #Can be tuned!!!!
@@ -197,8 +202,12 @@ class Trainer(nn.Module):
             if 'best' in dirs:
                 print_once('***Skipping training, moving to validation')
                 self.skip_train = True
+                return
             checkpoints = [int(d) for d in dirs if d.isdigit()]
-            
+            if not checkpoints:
+                print_once('***Checkpoint directory is empty, starting training from scratch')
+                return
+
             latest_checkpoint = os.path.join(self.args.resPath, str(max(checkpoints)))
             print_once(f'Loading from checkpoint {latest_checkpoint}')
             self.load_state_dicts(latest_checkpoint, load_optimizer=True)
@@ -246,7 +255,18 @@ class Trainer(nn.Module):
                 losses = self.imix_loss(feat1, feat2, mix_rand_list, mix_lambda)
                 loss = losses["instdisc_loss"] #why???
         
-        loss.backward()
+        
+        if self.args.fp16:
+            self.optimizer.zero_grad()
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            scaled_loss = self.scaler.scale(loss)
+            return scaled_loss.detach().cpu().item()
+        else:
+            loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
         #if self.rank == 0:
         #    print_once(f"Loss: {loss.item()}")
 
@@ -255,8 +275,6 @@ class Trainer(nn.Module):
         else:
             print_once('Gradients NOT updating') """
 
-        self.optimizer.step()
-        self.optimizer.zero_grad()
         return losses
     
     def train(self):   
@@ -353,6 +371,8 @@ class Trainer(nn.Module):
             best_val_loss = checkpoint_data['best_val_loss']
             start_step = checkpoint_data['step']
 
+        self.all_iter = self.args.epochs * len(self.train_loader)
+
         skipped = 0
         for step in tqdm(range(self.args.logging_step, np.min([self.all_iter, self.args.logging_step*self.args.logging_num+1]), self.args.logging_step)):
             if skipped < start_step:
@@ -368,7 +388,7 @@ class Trainer(nn.Module):
                     with torch.autocast(device_type="cuda"):
                         feat1, feat2, _, _ = self.model(input_ids, attention_mask, mix=False)
                         losses = self.hard_loss(feat1, feat2, pairsimi)
-                        val_loss += losses["instdisc_loss"]
+                        val_loss += losses["instdisc_loss"].detach().float()
             val_loss = val_loss.item()/(j+1)
             if val_loss < best_val_loss:
                 best_val_loss = val_loss

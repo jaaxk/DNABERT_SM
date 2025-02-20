@@ -62,7 +62,19 @@ def run(args):
     args.resPath = setup_path(args)
     set_global_random_seed(args.seed)
 
-    torch.cuda.set_device(local_rank)
+    #debug prints:
+    print(f"[Rank {local_rank}] CUDA available: {torch.cuda.is_available()}")
+    print(f"[Rank {local_rank}] CUDA device count: {torch.cuda.device_count()}")
+    print(f"[Rank {local_rank}] Current CUDA device: {torch.cuda.current_device()}")
+
+    try:
+        print(f"[Rank {local_rank}] Attempting to set device to {local_rank}")
+        torch.cuda.set_device(local_rank)
+        print(f"[Rank {local_rank}] Successfully set device")
+    except RuntimeError as e:
+        print(f"[Rank {local_rank}] Failed to set device: {str(e)}")
+        print(f"[Rank {local_rank}] CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+        raise
     device = torch.device(f'cuda:{local_rank}')
     print_once(f"Running on rank {local_rank}")
     print_once(f"{torch.cuda.device_count()} GPUs available to use!")
@@ -71,14 +83,19 @@ def run(args):
     We assume paired training data (e.g., DNA sequences in positive pairs with two columns) 
     is always saved in csv format.
     '''
+    print_once('check1')
     train_dataset = pair_loader_csv(args, load_train=True)
+    print_once('check2')
     val_loader = pair_loader_csv(args, load_train=False)
 
+    print_once('check3')
     train_sampler = DistributedSampler(train_dataset.dataset, shuffle=False)
+    print_once('check4')
     train_loader = torch.utils.data.DataLoader(
     train_dataset.dataset, batch_size=args.train_batch_size, sampler=train_sampler, num_workers=args.num_workers
     )
 
+    print_once('check5')
     tokenizer = AutoTokenizer.from_pretrained("zhihan1996/DNABERT-2-117M", trust_remote_code=True)
     model = DNABert_S_Attention(feat_dim=args.feat_dim, mix=args.mix, model_mix_dict=args.dnabert2_mix_dict, curriculum=args.curriculum)
     model.to(device)
@@ -88,6 +105,7 @@ def run(args):
     
     # set up the trainer
     trainer = Trainer(model, tokenizer, optimizer, train_loader, val_loader, args, local_rank)
+    print_once('check6')
     trainer.train()
     print_once('Training finished, evaluating...')
     end_time = time.time()
@@ -129,6 +147,7 @@ def get_args(argv):
     parser.add_argument('--mix_layer_num', type=int, default=-1, help="Which layer to perform i-Mix, if the value is -1, it means manifold i-Mix")
     parser.add_argument('--curriculum', action="store_true", help="Whether use curriculum learning")
     parser.add_argument('--num_workers', type=int, default=4, help="Number of data loader workers per GPU")
+    parser.add_argument('--fp16', action='store_true')
     
     
     args = parser.parse_args(argv)
