@@ -1,4 +1,4 @@
-# DNABERT-S with Global Attention Mechanism
+# [DNABERT-S](https://arxiv.org/abs/2402.08777) with Global Attention Mechanism
 
 With long input sequences, clustering and classification tasks may suffer from a low signal to noise ratio when using mean pooling.
 Using weighted-sum pooling with a learning global attention network will help the model understand which token embeddings are more useful for downstream tasks
