@@ -9,6 +9,7 @@ Using weighted-sum pooling with a learning global attention network will help th
 3. Made the model save and load checkpoints so training can be resumed at any point
 4. Implemented Fixed-Precision 16 (fp16) for higher memory efficiency
 5. Added logging of train and validation loss for analysis
+6. Updated the evaluate scripts to evaluate the modified model
 
 ## Training
 1. Create python virtual environment with `pip install -r requirements.txt`
