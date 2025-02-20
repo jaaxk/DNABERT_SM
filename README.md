@@ -3,7 +3,7 @@
 With long input sequences, clustering and classification tasks may suffer from a low signal to noise ratio when using mean pooling.
 Using weighted-sum pooling with a learning global attention network will help the model understand which token embeddings are more useful for downstream tasks
 
-##What I've implemented
+## What I've implemented
 1. Added an attention network in the model's forward method that learns using contrastive loss
 2. Moved the model from DataParallel to DistributedDataParallel for more efficient training, and to reduce common errors with DataPatallel
 3. Made the model save and load checkpoints so training can be resumed at any point
