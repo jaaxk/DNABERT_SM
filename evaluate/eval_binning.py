@@ -115,6 +115,11 @@ def main(args):
                 
                 print(f"f1_results: {f1_results}")
                 print(f"recall_results: {recall_results} \n")
+                with open('results.txt', 'w') as file:
+                    file.write(args.test_model_dir, end='\n')
+                    file.write(f"Model: {model}, species: {species}, sample: {sample}\n")
+                    file.write(f"f1_results: {f1_results}\n")
+                    file.write(f"recall_results: {recall_results} \n")
                 
 
 if __name__ == "__main__":

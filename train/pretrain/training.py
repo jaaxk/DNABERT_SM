@@ -290,6 +290,7 @@ class Trainer(nn.Module):
         print_once('\n={}/{}=Iterations/Batches'.format(self.all_iter, len(self.train_loader)))
 
         self.model.train()
+        cum_loss = 0
 
         for epoch in range(self.start_epoch, self.args.epochs):
             if self.resume:
@@ -313,9 +314,13 @@ class Trainer(nn.Module):
                             losses = self.train_step(input_ids, attention_mask, pairsimi)
                         else:
                             losses = self.train_step(input_ids, attention_mask, pairsimi, curriculum_not_start=False)
+
+                        cum_loss += losses
                         if self.gstep%self.args.logging_step==0:
                             if self.rank==0:
-                                self.writer.add_scalar('Loss/train', losses, self.gstep) #losses.item()?
+                                avg_loss = cum_loss / self.args.logging_step
+                                self.writer.add_scalar('Loss/train', avg_loss, self.gstep) #losses.item()?
+                                cum_loss = 0
                             #What other metrics should we track?
                             self.save_model(step=self.gstep, epoch=epoch)
                         if self.gstep > self.args.logging_step*self.args.logging_num:
@@ -327,7 +332,12 @@ class Trainer(nn.Module):
                 for j, batch in enumerate(epoch_iterator):
                     input_ids, attention_mask, pairsimi = self.prepare_pairwise_input(batch)
                     losses = self.train_step(input_ids, attention_mask, pairsimi)
+                    cum_loss += losses
                     if self.gstep%self.args.logging_step==0:
+                        if self.rank==0:
+                            avg_loss = cum_loss / self.args.logging_step
+                            self.writer.add_scalar('Loss/train', avg_loss, self.gstep)
+                            cum_loss = 0
                         self.save_model(step=self.gstep, epoch=epoch)
                     if self.gstep > self.args.logging_step*self.args.logging_num:
                         print_once(f'**WARNING breaking at gstep {self.gstep}, self.args.logging_step*self.args.logging_num = {self.args.logging_step*self.args.logging_num}, self.curriculum = False')
